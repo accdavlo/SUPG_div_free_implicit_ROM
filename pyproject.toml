@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gfsupg"
+version = "0.1.0"
+description = "Finite Element SUPG solver for the 2D hyperbolic acoustics problem with Global Flux multi-dimensional method with genuinely multi-dimensional moving equilibria preservation"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "numba>=0.64.0",
+    "scipy>=1.17.0",
+    "matplotlib>=3.10.0",
+    "ipykernel",
+]
+
+
+[tool.setuptools]
+packages = ["gfsupg"]
