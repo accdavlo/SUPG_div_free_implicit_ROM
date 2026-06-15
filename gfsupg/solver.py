@@ -1,8 +1,6 @@
-import numba
 import numpy as np
-from numba import types, typed
-from numba.experimental import jitclass
 from scipy.sparse import coo_matrix,csr_matrix, lil_matrix, dia_matrix
+import scipy.sparse as sp
 import time
 import pickle, os
 
@@ -15,9 +13,166 @@ from scipy.optimize import LinearConstraint, minimize
 from .quadr import lagrange_basis, lagrange_basis_deriv, nodes_weights
 from .problem import LinearAcoustic2D
 
-class Scipy2DFEM:
-    def __init__(self, geom, FEM1Dx, FEM1Dy=None, folder = None, force_matrix_assembly = False):
+
+class CartesianGeometry:
+    """
+    Defines an hexaedral geometry with a cartesian grid
+    xL are all coordinates of left faces and xR are coordinates of right faces, so that the domain is \prod_k [xL[k],xR[k]]
+    N_elem_dir are the number of element for each 
+    BC Boundary conditions (0 periodic, 1 dirichlet) in order x[0]=xL[0], x[1]=xL[1], ..., x[0]=xR[0], x[1]=xR[0], ... x[dim-1]=xR[dim-1] 
+    """
+    def __init__(self, xL, xR, N_elem_dir, geometry_folder, BC=None):
+        assert len(xL) == len(xR) and len(xL) == len(N_elem_dir)
+        self.geometry_folder = geometry_folder
+        self.dim = np.shape(xL)[0]
+        self.xL  = xL
+        self.xR  = xR
+        self.domainLength_dir = xR - xL
+        self.N_elem_dir       = N_elem_dir
+        self.N_elem           = np.prod(self.N_elem_dir)
+        self.dx = self.domainLength_dir/self.N_elem_dir
+        self.dx_min = np.min(self.dx)
+        self.xx = {}
+        for k in range(self.dim):
+            self.xx[k] = np.linspace(self.xL[k],self.xR[k],self.N_elem_dir[k]+1)
+        if BC is None:
+            self.BC = np.zeros(2*self.dim, dtype=np.int32)   # periodic BC
+        else:
+            self.BC = BC
+        for k in range(self.dim):
+            if self.BC[k]==0:                               # Periodic BC 
+                assert self.BC[k]==self.BC[k+self.dim]      # Check that is periodic also on the other side
+                self.xx[k] = self.xx[k][:-1]
+
+
+class FiniteElement1D:
+    """
+    Defines the one dimensional Finite ELement matrices
+    Inputs:
+    degree of polynomials
+    nodes_type among equispaced, gaussLobatto
+    quadrature_type among equispaced, gaussLobatto, gaussLegendre
+    Class elements:
+    mass     matrix M_ij  = int phi_i phi_j
+    deriv_i  matrix D_ij  = int phi_i' phi_j
+    deriv_j  matrix D_ij  = int phi_i phi_j'
+    deriv_ij matrix D_ij  = int phi_i' phi_j'
+    """
+    def __init__(self, degree, nodes_type="gaussLobatto", quad_type = "gaussLegendre"):
+        self.degree = degree
+        self.N_dof  = self.degree + 1
+
+        self.nodes,      self.weights      = nodes_weights(self.N_dof, nodes_type)
+        self.quad_nodes, self.quad_weights = nodes_weights(self.N_dof, quad_type)
+        self.assemble_matrices()
+        self.assemble_stencil_matrices()
+
+    def assemble_matrices(self):
+        self.matrix_names = ("mass","lump_mass","eval_mat","int_mat", "mass_bar",
+                             "deriv_i","deriv_j","deriv_ij",
+                             "deriv_ij_tilde","der_int_tilde", \
+                             "deriv_i_tilde","mass_int",\
+                             "deriv_j_bar")
+
+        self.matrix    = {}#typed.Dict.empty(*mat_st)
+        for matrix_name in self.matrix_names:
+            self.matrix[matrix_name] = np.zeros((self.N_dof, self.N_dof))
+
+
+        self.phi_quad = np.zeros((self.N_dof, len(self.quad_nodes)))
+        self.phi_der_quad = np.zeros((self.N_dof, len(self.quad_nodes)))
+        for i in range(self.N_dof):
+            self.phi_quad[i,:]     = lagrange_basis(self.nodes, self.quad_nodes, i)
+            self.phi_der_quad[i,:] = lagrange_basis_deriv(self.nodes, self.quad_nodes, i)
+
+        phi_quad = self.phi_quad
+        phi_der_quad = self.phi_der_quad
+
+        for i in range(self.N_dof):            
+            for j in range(self.N_dof):
+                for iq in range(len(self.quad_nodes)):
+                    wq = self.quad_weights[iq]
+                    self.matrix["mass"][i,j]    += wq * phi_quad[i,iq]    * phi_quad[j,iq]
+                    self.matrix["deriv_i"][i,j] += wq * phi_der_quad[i,iq]* phi_quad[j,iq]
+                    self.matrix["deriv_j"][i,j] += wq * phi_quad[i,iq]    * phi_der_quad[j,iq]
+                    self.matrix["deriv_ij"][i,j]+= wq * phi_der_quad[i,iq]* phi_der_quad[j,iq]
+            self.matrix["lump_mass"][i,i] = np.sum(self.matrix["mass"][i,:])
+
+        for i in range(self.N_dof):            
+            nodes_i   = self.nodes[i]*self.quad_nodes
+            weights_i = self.nodes[i]*self.quad_weights
+            for j in range(self.N_dof):
+                basis_quad = lagrange_basis(self.nodes, nodes_i, j)
+                for iq in range(len(self.quad_nodes)):
+                    self.matrix["int_mat"][i,j] +=  weights_i[iq]*basis_quad[iq]
         
+        for j in range(self.N_dof):
+            basis_nodes = lagrange_basis(self.nodes, self.nodes, j)
+            self.matrix["eval_mat"][:,j] =  basis_nodes
+        
+        self.matrix["deriv_ij_tilde"] = self.matrix["deriv_ij"]@self.matrix["eval_mat"]
+        self.matrix["der_int_tilde"]  = self.matrix["deriv_j"] @self.matrix["int_mat"]
+        self.matrix["deriv_i_tilde"]  = self.matrix["deriv_ij"]@self.matrix["int_mat"]
+        self.matrix["deriv_j_bar"]    = self.matrix["deriv_j"] @self.matrix["eval_mat"]
+        self.matrix["mass_bar"]       = self.matrix["mass"] @self.matrix["eval_mat"]
+        self.matrix["mass_int"]       = self.matrix["mass"] @self.matrix["int_mat"]
+
+
+    def assemble_stencil_matrices(self):
+        """
+        Dof shared between cells belong to the right cell
+                cell k         cell k+1
+         |-----------------|-----------------|
+        dof0  dof1  dof2  dof0  dof1  dof2  dof0
+        Hence, dof0 of cell k communicates up to cell k-1 and cell k+1
+        Assuming connectivity of only two cells to right and one to the left
+        """
+        self.stencil_cells_length = 3
+
+        self.stencil_long = {}#typed.Dict.empty(*ste_st)
+        self.stencil      = {}#typed.Dict.empty(*mat_st)
+        for matrix_name in self.matrix_names:
+            self.stencil_long[matrix_name] = np.zeros((self.degree, self.stencil_cells_length, self.degree))
+            self.stencil[matrix_name] = np.zeros((self.degree, self.stencil_cells_length*self.degree))
+
+       
+        # Contributions from the same cell
+        for matrix_name in self.matrix_names:
+            for i in range(self.degree):
+                self.stencil_long[matrix_name][i,0,:] = \
+                    self.matrix[matrix_name][i,:self.degree]    
+
+                #  Contributions from the cell on the right
+                self.stencil_long[matrix_name][i,1,0] = \
+                    self.matrix[matrix_name][i,self.degree]    
+            
+            # Add contributions from cell k-1
+            i=0
+            for j in range(self.degree):
+                self.stencil_long[matrix_name][i,-1,j] +=\
+                    self.matrix[matrix_name][self.degree,j]
+
+            # Add contribution of last dof of cell k-1
+            i=0
+            self.stencil_long[matrix_name][i,0,0] += self.matrix[matrix_name][self.degree,self.degree]
+
+            # Putting stencil on one line
+
+            self.stencil[matrix_name][:,:self.degree]                =  self.stencil_long[matrix_name][:,-1,:]
+            self.stencil[matrix_name][:,self.degree:2*self.degree]   =  self.stencil_long[matrix_name][:,0,:]
+            self.stencil[matrix_name][:,2*self.degree:3*self.degree] =  self.stencil_long[matrix_name][:,1,:]
+
+
+class Scipy2DFEM:
+    def __init__(self, geom, FEM1Dx, FEM1Dy=None, folder = None, force_matrix_assembly = False, save_operators = False):
+        
+        self.save_operators = save_operators
+        if self.save_operators and folder is None:
+            self.save_operators = False
+        
+        if not self.save_operators:
+            self.force_matrix_assembly = True
+
         if folder is not None:
             save_operators_path = geom.geometry_folder+'FEM2D_operators_ord%d_N%04d.pkl'%(FEM1Dx.degree+1,geom.N_elem_dir[0])
 
@@ -62,7 +217,7 @@ class Scipy2DFEM:
                 if matrix not in self.operator.keys():
                     computed_new_matrix = True
                     print("Assembling Matrix %s"%(matrix), end="\r")
-                    self.operator[matrix] = self.build_matrix(\
+                    self.operator[matrix] = self.build_matrix_kron(\
                 self.FEM1Dx.stencil[self.matrices_definition[matrix]["matrix_x"]],\
                 self.FEM1Dy.stencil[self.matrices_definition[matrix]["matrix_y"]])*\
                 self.matrices_definition[matrix]["coefficient"]
@@ -71,17 +226,17 @@ class Scipy2DFEM:
             
             if computed_new_matrix:
                 print("Assembled new matrices in %1.3f seconds"%(toc), end="\r")
-                with open(save_operators_path, 'wb') as outp:
-                    pickle.dump(self.operator, outp, pickle.HIGHEST_PROTOCOL)
-
+                if self.save_operators:
+                    with open(save_operators_path, 'wb') as outp:
+                        pickle.dump(self.operator, outp, pickle.HIGHEST_PROTOCOL)
             return
         else:
             print("Assembling matrices", end = "\r")
             tic = time.time()
-            self.build_matrices()
+            self.build_matrices_kron()
             toc = time.time()-tic
             print("Assembled matrices in %1.3f seconds"%toc)
-            if self.folder is not None:
+            if self.folder is not None and self.save_operators:
                 with open(save_operators_path, 'wb') as outp:
                     pickle.dump(self.operator, outp, pickle.HIGHEST_PROTOCOL)
 
@@ -136,18 +291,13 @@ class Scipy2DFEM:
     def apply_dirichlet_bc_matrix(self, boundaries, matrix):
         for boundary in boundaries:
             for i in self.dirichlet_indexes[boundary]:
+                put_zero_row_in_csr(matrix, i)
                 matrix[i,i]=1.0
 
     def apply_dirichlet_bc_rhs(self, boundaries, rhs, value):
         for boundary in boundaries:
             for i in self.dirichlet_indexes[boundary]:
                 rhs[i]=value[i]
-
-    # def boundary_index_dir(self, ix, direction):
-    #     if self.geom.BC[direction]==0:
-    #         return ix%self.n_dof_dir[direction]
-    #     else:
-    #         return max(min(ix,self.n_dof_dir[direction]-1),0)
 
     def vect_to_mat(self, u_vec):
         u_mat = np.zeros((self.n_dof_dir[0],self.n_dof_dir[1]))
@@ -389,31 +539,13 @@ class Scipy2DFEM:
         }
 
 
-    def build_matrix(self, stencil_x, stencil_y):
-        """ numba implementation of 2D matrix assembly (faster)"""
-
-        matrix = lil_matrix((self.n_dof_tot,self.n_dof_tot), dtype=np.float64)
-
-        index_i, index_j, values = assemble_sparse_matrix(\
-            self.xx_dofs[0],self.xx_dofs[1],self.FEM1Dx,self.FEM1Dy, self.mat_2_vect, stencil_x, stencil_y, self.geom, self.n_dof_dir[0],self.n_dof_dir[1])
-                        
-        for ix in range(len(self.xx_dofs[0])):
-            for iy in range(len(self.xx_dofs[1])):
-                for jx_stencil in range(3*self.FEM1Dx.degree ):
-                    for jy_stencil in range(3*self.FEM1Dy.degree ):
-                        i = index_i[ix,iy,jx_stencil,jy_stencil]
-                        j = index_j[ix,iy,jx_stencil,jy_stencil]
-                        v = values[ix,iy,jx_stencil,jy_stencil]
-
-                        matrix[i,j] += v
-
-        matrix = csr_matrix(matrix)
-        matrix.eliminate_zeros()
-        return matrix
-    
+    def build_matrix_kron(self, stencil_x, stencil_y):
+        mat_x = self.build_1D_matrix(stencil_x, 0)
+        mat_y = self.build_1D_matrix(stencil_y, 1)
+        return sp.kron(mat_x, mat_y)
 
     def build_1D_matrix(self, stencil_dir, direction):
-        """ numba implementation of 1D matrix assembly"""
+        """1D matrix assembly"""
 
         matrix = lil_matrix((self.n_dof_dir[direction],self.n_dof_dir[direction]), dtype=np.float64)
 
@@ -422,7 +554,12 @@ class Scipy2DFEM:
             FEM1D = self.FEM1Dx
         elif direction==1:
             FEM1D = self.FEM1Dy
-        index_i, index_j, values = assemble_1D_sparse_matrix(self.xx_dofs[direction],FEM1D, direction, self.geom, self.n_dof_dir[direction], direction )
+        index_i, index_j, values = assemble_1D_sparse_matrix(self.xx_dofs[direction],
+                                                             FEM1D, 
+                                                             stencil_dir, 
+                                                             self.geom, 
+                                                             self.n_dof_dir[direction], 
+                                                             direction )
                         
         for ix in range(len(self.xx_dofs[direction])):
             for jx_stencil in range(3*FEM1D.degree ):
@@ -435,8 +572,8 @@ class Scipy2DFEM:
         matrix = csr_matrix(matrix)
         matrix.eliminate_zeros()
         return matrix
-
-    def build_matrices(self):
+    
+    def build_matrices_kron(self):
         self.define_matrices()
 
         tot_mat = len(self.matrices_definition)
@@ -444,7 +581,7 @@ class Scipy2DFEM:
         self.operator = dict() 
         for i, matrix in enumerate(self.matrices_definition):
             print("Assembling Matrices  %02d/%d"%(i,tot_mat+1), end="\r")
-            self.operator[matrix] = self.build_matrix(\
+            self.operator[matrix] = self.build_matrix_kron(\
                 self.FEM1Dx.stencil[self.matrices_definition[matrix]["matrix_x"]],\
                 self.FEM1Dy.stencil[self.matrices_definition[matrix]["matrix_y"]])*\
                 self.matrices_definition[matrix]["coefficient"]
@@ -907,7 +1044,6 @@ class Scipy2DFEM:
             return p_vec
 
 
-@numba.njit
 def boundary_index_dir(ix, direction, geom, n_dof_dir):
     """ Actual implementation of boundary conditions for matrices: we look for the appropriate index periodic/neumann"""
     if geom.BC[direction]==0: #periodic
@@ -915,47 +1051,7 @@ def boundary_index_dir(ix, direction, geom, n_dof_dir):
     else: #neumann (and dirichlet doesn't really matter)
         return max(min(ix,n_dof_dir-1),0)
 
-@numba.njit
-def assemble_sparse_matrix(xx_dofs_x, xx_dofs_y,FEM1Dx,FEM1Dy, mat_2_vect, stencil_x, stencil_y, geom\
-                           , n_dof_x, n_dof_y):
-    """Assemble of the sparse matrix in form of 4-tensor index_i, index_j, values such that matrix[index_i[ix,iy,jx_stencil,jy_stencil], index_j[ix,iy,jx_stencil,jy_stencil]]+=values[ix,iy,jx_stencil,jy_stencil]
-    where ix, iy are the dof indexes of the rows and
-    jx_stencil and jy_stencil are the dofs of the columns (only in the stencil of the matrix)
-    """
-    Na, Nb, Nc, Nd = len(xx_dofs_x), len(xx_dofs_y),\
-            3*FEM1Dx.degree, 3*FEM1Dy.degree
 
-    index_i = np.zeros((Na,Nb,Nc,Nd), dtype=np.int64)
-    index_j = np.zeros((Na,Nb,Nc,Nd), dtype=np.int64)
-    values  = np.zeros((Na,Nb,Nc,Nd))
-
-    for ix, xi in enumerate(xx_dofs_x):
-        ix_cell = ix//FEM1Dx.degree
-        ix_dof  = ix %FEM1Dx.degree
-        for iy, yi in enumerate(xx_dofs_y):
-            iy_cell = iy//FEM1Dy.degree
-            iy_dof  = iy %FEM1Dy.degree
-            i = mat_2_vect[ix,iy]
-
-            index_i[ix,iy,:,:] = i
-
-            # 1D formalism
-            jxl = (ix_cell-1)*FEM1Dx.degree 
-            jxr = (ix_cell+2)*FEM1Dx.degree 
-            jyl = (iy_cell-1)*FEM1Dy.degree 
-            jyr = (iy_cell+2)*FEM1Dy.degree 
-
-            for jx_stencil, jx in enumerate(range(jxl,jxr)):
-                for jy_stencil, jy in enumerate(range(jyl,jyr)):
-                    j = mat_2_vect[boundary_index_dir(jx,0, geom, n_dof_x),\
-                                    boundary_index_dir(jy,1, geom, n_dof_y)]                        
-                    index_j[ix,iy,jx_stencil,jy_stencil] = j
-                    values[ix,iy,jx_stencil,jy_stencil]  = stencil_x[ix_dof,jx_stencil]*\
-                                        stencil_y[iy_dof,jy_stencil]
-    return index_i, index_j, values
-
-
-@numba.njit
 def assemble_1D_sparse_matrix(xx_dofs_dir, FEM1D_dir, stencil_dir, geom, n_dof_dir, direction):
     """Assemble of the sparse matrix in form of 4-tensor index_i, index_j, values such that matrix[index_i[ix,iy,jx_stencil,jy_stencil], index_j[ix,iy,jx_stencil,jy_stencil]]+=values[ix,iy,jx_stencil,jy_stencil]
     where ix, iy are the dof indexes of the rows and
@@ -990,204 +1086,7 @@ class Dirichlet_BC_set:
         self.dirichlet_vector = dirichlet_vector
         self.vars  = list(dirichlet_vector.keys())
 
-xx_tv = (types.int64, types.float64[:])
 
-geom_specs=[
-    ('xL',numba.float64[:]),
-    ('xR',numba.float64[:]),
-    ('geometry_folder',numba.types.string),
-    ('domainLength_dir',numba.float64[:]),
-    ('dim',numba.int32),
-    ('N_elem_dir',numba.int32[:]),
-    ('N_elem',numba.int32),
-    ('N_dof',numba.int32),
-    ('dx',numba.float64[:]),
-    ('dx_min',numba.float64),
-    ('xx',types.DictType(*xx_tv)),
-    ('BC',numba.int32[:])
-    ]
-@jitclass(geom_specs)
-class CartesianGeometry:
-    """
-    Defines an hexaedral geometry with a cartesian grid
-    xL are all coordinates of left faces and xR are coordinates of right faces, so that the domain is \prod_k [xL[k],xR[k]]
-    N_elem_dir are the number of element for each 
-    BC Boundary conditions (0 periodic, 1 dirichlet) in order x[0]=xL[0], x[1]=xL[1], ..., x[0]=xR[0], x[1]=xR[0], ... x[dim-1]=xR[dim-1] 
-    """
-    def __init__(self, xL, xR, N_elem_dir, geometry_folder, BC=None):
-        assert len(xL) == len(xR) and len(xL) == len(N_elem_dir)
-        self.geometry_folder = geometry_folder
-        self.dim = np.shape(xL)[0]
-        self.xL  = xL
-        self.xR  = xR
-        self.domainLength_dir = xR - xL
-        self.N_elem_dir       = N_elem_dir
-        self.N_elem           = np.prod(self.N_elem_dir)
-        self.dx = self.domainLength_dir/self.N_elem_dir
-        self.dx_min = np.min(self.dx)
-        self.xx = typed.Dict.empty(*xx_tv)
-        for k in range(self.dim):
-            self.xx[k] = np.linspace(self.xL[k],self.xR[k],self.N_elem_dir[k]+1)
-        if BC is None:
-            self.BC = np.zeros(2*self.dim, dtype=np.int32)   # periodic BC
-        else:
-            self.BC = BC
-        for k in range(self.dim):
-            if self.BC[k]==0:                               # Periodic BC 
-                assert self.BC[k]==self.BC[k+self.dim]      # Check that is periodic also on the other side
-                self.xx[k] = self.xx[k][:-1]
-
-
-mat_st = (types.string, types.float64[:,:])
-ste_st = (types.string, types.float64[:,:,:])
-
-FEM1D_specs=[
-    ('degree',numba.int32),
-    ('N_dof',numba.int32),
-    ('stencil_cells_length',numba.int32),
-    ('nodes',numba.float64[:]),
-    ('weights',numba.float64[:]),
-    ('quad_nodes',numba.float64[:]),
-    ('quad_weights',numba.float64[:]),
-    ('matrix',       types.DictType(*mat_st)),
-    ('stencil_long', types.DictType(*ste_st)),
-    ('stencil',      types.DictType(*mat_st)),
-    ('phi_quad',numba.float64[:,:]),
-    ('phi_der_quad',numba.float64[:,:]),
-    ('nodes_type',numba.types.string),
-    ('matrix_names', numba.types.ListType(numba.types.string))
-    ]
-@jitclass(FEM1D_specs)
-class FiniteElement1D:
-    """
-    Defines the one dimensional Finite ELement matrices
-    Inputs:
-    degree of polynomials
-    nodes_type among equispaced, gaussLobatto
-    quadrature_type among equispaced, gaussLobatto, gaussLegendre
-    Class elements:
-    mass     matrix M_ij  = int phi_i phi_j
-    deriv_i  matrix D_ij  = int phi_i' phi_j
-    deriv_j  matrix D_ij  = int phi_i phi_j'
-    deriv_ij matrix D_ij  = int phi_i' phi_j'
-    """
-    def __init__(self, degree, nodes_type="gaussLobatto", quad_type = "gaussLegendre"):
-        self.degree = degree
-        self.N_dof  = self.degree + 1
-
-        self.nodes,      self.weights      = nodes_weights(self.N_dof, nodes_type)
-        self.quad_nodes, self.quad_weights = nodes_weights(self.N_dof, quad_type)
-        self.assemble_matrices()
-        self.assemble_stencil_matrices()
-
-    def assemble_matrices(self):
-        self.matrix_names = numba.typed.List.empty_list(numba.types.string)
-        matrix_names = ("mass","lump_mass","eval_mat","int_mat", "mass_bar",
-                             "deriv_i","deriv_j","deriv_ij",
-                             "deriv_ij_tilde","der_int_tilde", \
-                             "deriv_i_tilde","mass_int",\
-                             "deriv_j_bar")
-        for matrix_name in matrix_names:
-            self.matrix_names.append(matrix_name) 
-
-        self.matrix    = typed.Dict.empty(*mat_st)
-        for matrix_name in self.matrix_names:
-            self.matrix[matrix_name] = np.zeros((self.N_dof, self.N_dof))
-
-
-        self.phi_quad = np.zeros((self.N_dof, len(self.quad_nodes)))
-        self.phi_der_quad = np.zeros((self.N_dof, len(self.quad_nodes)))
-        for i in range(self.N_dof):
-            self.phi_quad[i,:]     = lagrange_basis(self.nodes, self.quad_nodes, i)
-            self.phi_der_quad[i,:] = lagrange_basis_deriv(self.nodes, self.quad_nodes, i)
-
-        phi_quad = self.phi_quad
-        phi_der_quad = self.phi_der_quad
-
-        for i in range(self.N_dof):            
-            for j in range(self.N_dof):
-                for iq in range(len(self.quad_nodes)):
-                    wq = self.quad_weights[iq]
-                    self.matrix["mass"][i,j]    += wq * phi_quad[i,iq]    * phi_quad[j,iq]
-                    self.matrix["deriv_i"][i,j] += wq * phi_der_quad[i,iq]* phi_quad[j,iq]
-                    self.matrix["deriv_j"][i,j] += wq * phi_quad[i,iq]    * phi_der_quad[j,iq]
-                    self.matrix["deriv_ij"][i,j]+= wq * phi_der_quad[i,iq]* phi_der_quad[j,iq]
-            self.matrix["lump_mass"][i,i] = np.sum(self.matrix["mass"][i,:])
-
-        for i in range(self.N_dof):            
-            nodes_i   = self.nodes[i]*self.quad_nodes
-            weights_i = self.nodes[i]*self.quad_weights
-            for j in range(self.N_dof):
-                basis_quad = lagrange_basis(self.nodes, nodes_i, j)
-                for iq in range(len(self.quad_nodes)):
-                    self.matrix["int_mat"][i,j] +=  weights_i[iq]*basis_quad[iq]
-        
-        for j in range(self.N_dof):
-            basis_nodes = lagrange_basis(self.nodes, self.nodes, j)
-            self.matrix["eval_mat"][:,j] =  basis_nodes
-        
-        self.matrix["deriv_ij_tilde"] = self.matrix["deriv_ij"]@self.matrix["eval_mat"]
-        self.matrix["der_int_tilde"]  = self.matrix["deriv_j"] @self.matrix["int_mat"]
-        self.matrix["deriv_i_tilde"]  = self.matrix["deriv_ij"]@self.matrix["int_mat"]
-        self.matrix["deriv_j_bar"]    = self.matrix["deriv_j"] @self.matrix["eval_mat"]
-        self.matrix["mass_bar"]       = self.matrix["mass"] @self.matrix["eval_mat"]
-        self.matrix["mass_int"]       = self.matrix["mass"] @self.matrix["int_mat"]
-
-
-    def assemble_stencil_matrices(self):
-        """
-        Dof shared between cells belong to the right cell
-                cell k         cell k+1
-         |-----------------|-----------------|
-        dof0  dof1  dof2  dof0  dof1  dof2  dof0
-        Hence, dof0 of cell k communicates up to cell k-1 and cell k+1
-        Assuming connectivity of only two cells to right and one to the left
-        """
-        self.stencil_cells_length = 3
-
-        self.stencil_long = typed.Dict.empty(*ste_st)
-        self.stencil      = typed.Dict.empty(*mat_st)
-        for matrix_name in self.matrix_names:
-            self.stencil_long[matrix_name] = np.zeros((self.degree, self.stencil_cells_length, self.degree))
-            self.stencil[matrix_name] = np.zeros((self.degree, self.stencil_cells_length*self.degree))
-
-       
-        # Contributions from the same cell
-        for matrix_name in self.matrix_names:
-            for i in range(self.degree):
-                self.stencil_long[matrix_name][i,0,:] = \
-                    self.matrix[matrix_name][i,:self.degree]    
-
-                #  Contributions from the cell on the right
-                self.stencil_long[matrix_name][i,1,0] = \
-                    self.matrix[matrix_name][i,self.degree]    
-            
-            # Add contributions from cell k-1
-            i=0
-            for j in range(self.degree):
-                self.stencil_long[matrix_name][i,-1,j] +=\
-                    self.matrix[matrix_name][self.degree,j]
-
-            # Add contribution of last dof of cell k-1
-            i=0
-            self.stencil_long[matrix_name][i,0,0] += self.matrix[matrix_name][self.degree,self.degree]
-
-            # Putting stencil on one line
-
-            self.stencil[matrix_name][:,:self.degree]                =  self.stencil_long[matrix_name][:,-1,:]
-            self.stencil[matrix_name][:,self.degree:2*self.degree]   =  self.stencil_long[matrix_name][:,0,:]
-            self.stencil[matrix_name][:,2*self.degree:3*self.degree] =  self.stencil_long[matrix_name][:,1,:]
-
-dec_specs=[
-    ('n_subNodes', numba.int32),
-    ('M_sub', numba.int32),
-    ('n_iter', numba.int32),
-    ('nodes_type', numba.types.string),
-    ('name', numba.types.string),
-    ('theta', numba.float64[:,:]),
-    ('beta', numba.float64[:]),
-]
-@jitclass(dec_specs)
 class DeC:
     def __init__(self, M_sub, n_iter, nodes_type):
         self.n_subNodes = M_sub+1
@@ -1216,16 +1115,15 @@ class DeCSpaceTimeSUPGSolver:
     def __init__(self, problem, FEM2D, DeC, GF=False, stab = "SUPG", trick_second_der = False):
         self.FEM2D   = FEM2D
         self.geom    = self.FEM2D.geom 
+        self.GF      = GF
         self.DeC     = DeC
         self.problem = problem
         self.set_ic()
         self.CFL     = 0.1
         if self.FEM2D.FEM1Dx.degree>=5:
-            self.CFL = 1./2./(2.*self.FEM2D.FEM1Dx.degree+1)
-        print("CFL number = %g"%self.CFL)
+            self.set_CFL( 1./2./(2.*self.FEM2D.FEM1Dx.degree+1))
         self.Nt_save = 35
         self.Nt_max  = 1000000
-        self.GF      = GF
         self.stab    = stab
         self.trick_second_der = trick_second_der
         self.set_second_derivative_operators()
@@ -1305,12 +1203,15 @@ class DeCSpaceTimeSUPGSolver:
                 base_folder="LinAc2D_"+self.problem.steady_state_test
                 order = self.FEM2D.FEM1Dx.degree+1
                 N     = self.FEM2D.geom.N_elem_dir[0]
-                filename = "/final_sol_SUPG_GF_ord_%d_N_%04d.pkl"%(order,N)
+                if self.GF:
+                    filename = "/final_sol_SUPG_GF_ord_%d_N_%04d.pkl"%(order,N)
+                else:
+                    filename = "/final_sol_SUPG_ord_%d_N_%04d.pkl"%(order,N)
                 if os.path.isfile(base_folder+filename):
                     with open(base_folder+filename, 'rb') as handle:
                         final_sol = pickle.load(handle)
                 else:
-                    raise ValueError("You should first run the numerical long time simulation for SUPG_GF_ord_%d_N_%04d"%(order,N))
+                    raise ValueError("File not found %s\n You should first run the numerical long time simulation"%(base_folder+filename))
                 self.ic_vect = final_sol[0]
 
                 if self.problem.perturbation:
@@ -1372,6 +1273,8 @@ class DeCSpaceTimeSUPGSolver:
 
     def set_CFL(self, CFL):
         self.CFL = CFL
+        print("CFL number = %g"%self.CFL)
+        
     def set_save_slabs(self, Nt_save):
         self.Nt_save = max(Nt_save,3)
     def set_Nt_max(self, Nt_max):
@@ -1379,11 +1282,13 @@ class DeCSpaceTimeSUPGSolver:
 
     def solve(self, stab_coeff = None, with_error = False, \
               with_error_vertex = False, GF=None, CFL = None, \
-              save_sol_name = None, stab = None, trick_second_der = False, curl_stab_flag = False):
+              save_sol = False, stab = None, trick_second_der = False, curl_stab_flag = False):
         if CFL is not None:
-            self.CFL = CFL
+            self.set_CFL(CFL)
         if GF is not None:
             self.GF = GF
+
+
 
         if with_error:
             error = np.zeros(len(self.problem.vars))
@@ -1396,6 +1301,13 @@ class DeCSpaceTimeSUPGSolver:
 
         if stab is not None:
             self.stab = stab
+
+        if self.GF:
+            method_name = self.stab+"_GF"
+            error_name = "errors_"+self.stab+"_GF"
+        else:
+            method_name = self.stab
+            error_name = "errors_"+self.stab
 
         if self.problem.equations=="acoustics":
             if self.GF:
@@ -1435,6 +1347,7 @@ class DeCSpaceTimeSUPGSolver:
             self.trick_second_der = trick_second_der
             self.set_second_derivative_operators()
         
+
         dt_save = self.problem.T_fin/(self.Nt_save-2)
 
         q_save = dict() 
@@ -1573,8 +1486,20 @@ class DeCSpaceTimeSUPGSolver:
                         sol_vertex = self.FEM2D.from_vector_to_vertex(q_save[var][it_save,:])
                         error_vertex[ivar] += np.linalg.norm(sol_vertex-ex)/np.sqrt(len(ex))*dt_tmp
 
+        if save_sol is not None:
+            q_final = dict()
+            for var in self.problem.vars:
+                q_final[var] = q_save[var][-1]
+
+            sol_to_save = [q_final, tt_save[-1], comp_time, error, error_vertex ]
+            # Open a file and use dump()
+            savefile_name = self.problem.folderName+"/final_sol_"+method_name+"_ord_%d_N_%04d.pkl"%(self.FEM2D.FEM1Dx.degree+1,self.FEM2D.geom.N_elem_dir[0])
+            with open(savefile_name, 'wb') as file:
+                # A new file will be created
+                pickle.dump(sol_to_save, file)
+        
+        
         print("")
-       
         return q_save, tt_save, comp_time, error, error_vertex
     
 
@@ -1781,9 +1706,6 @@ def DeC_one_step(problem, DeC, FEM2D, dt, al, stab_curl_coeff, q_prev, L2, q_now
                 L2[var][:] += all_stabs[var]
 
 
-        # Update the value with formula
-        # L^1(q^{k+1}) = L^1(q^{k}) - L^2(q^{k})
-
         for var in problem.vars:
             q_now[var][m,:] = q_prev[var][m,:] - dt*op["inv_lump"]@L2[var][:]
 
@@ -1793,519 +1715,12 @@ def DeC_one_step(problem, DeC, FEM2D, dt, al, stab_curl_coeff, q_prev, L2, q_now
                     q_now[var][m,dirichlet_BC[bc_item].indexes] =\
                         dirichlet_BC[bc_item].dirichlet_vector[var]
 
-@numba.njit
-def extend(u, FEM1Dx, FEM1Dy, geom):
-    degree_x = FEM1Dx.degree
-    degree_y = FEM1Dy.degree
-    (Nx, Ny) = u.shape 
-    if geom.BC[0] == 0:  # periodic in x
-        Nx_extend = Nx + 2*degree_x  #one extra cell on the right and one on the left
-    else:
-        Nx_extend = Nx + 3*degree_x -1 # two extra cells on the right (one dof already contained)
-    if geom.BC[1] == 0:  # periodic in y
-        Ny_extend = Ny + 2*degree_y  #one extra cell on the right and one on the left
-    else:
-        Ny_extend = Ny + 3*degree_y -1 # two extra cells on the right (one dof already contained)
-    u_ext = np.zeros((Nx_extend, Ny_extend))
-    u_ext[degree_x:Nx+degree_x,degree_y:Ny+degree_y] = u
-    if geom.BC[0] == 0:  # periodic in x
-        for i in range(degree_x):
-            u_ext[i,degree_y:-degree_y]    = u[-degree_x+i,:]
-            u_ext[-i-1,degree_y:-degree_y] = u[degree_x-i-1,:]
-    else:  #non periodic in x
-        for i in range(degree_x):
-            u_ext[i,degree_y:Ny+degree_y] = u[0,:]
-        for i in range(2*degree_x-1):
-            u_ext[-i-1,degree_y:Ny+degree_y] = u[-1,:]
-    if geom.BC[1] == 0: #periodic in y
-        for i in range(degree_y):
-            u_ext[:,i] = u_ext[:,-2*degree_y+i]
-            u_ext[:,-i-1] = u_ext[:,2*degree_y-1-i]
-    else:
-        for i in range(degree_y):
-            u_ext[:,i] = u_ext[:,degree_y]
-        for i in range(2*degree_y-1):
-            u_ext[:,-i-1] = u_ext[:,Ny+degree_y-1]
-    return u_ext
 
-
-
-
-
-@numba.njit
 def get_stencil_indexes(i_cell, degree):
     jl = (i_cell-1)*degree +degree
     jr = (i_cell+2)*degree +degree
     return jl, jr
 
-stenc_specs = [
-    ('stencil_x',types.float64[:,:]),
-    ('stencil_y',types.float64[:,:])
-]
-@jitclass(stenc_specs)
-class Stencil_x_y:
-    def __init__(self,stencil_x,stencil_y):
-        self.stencil_x = stencil_x
-        self.stencil_y = stencil_y
-
-@numba.njit
-def invert_nnz(ll):
-    zz=np.zeros(ll.shape)
-    zz = (ll!=0)/(ll+1e-100)
-    return zz
-
-
-xx_dofs_tv = (types.int32, types.float64[:])
-ndof_tv = (types.int32, types.int32)
-matrix_def_tv = (types.unicode_type,types.unicode_type)
-matrix_coeff_tv = (types.unicode_type,types.float64)
-
-all_matrices_tv = (types.unicode_type, matrix_def_tv)
-all_matrices_coeff_tv = (types.unicode_type, matrix_coeff_tv)
-all_stencils_tv = (types.unicode_type, Stencil_x_y.class_type.instance_type)
-
-
-FEM2D_specs=[
-    ('FEM1Dx',FiniteElement1D.class_type.instance_type),
-    ('FEM1Dy',FiniteElement1D.class_type.instance_type),
-    ('geom',  CartesianGeometry.class_type.instance_type),
-    ('xx_dofs',  types.DictType(*xx_dofs_tv)),
-    ('n_dof_dir',types.DictType(*ndof_tv)),
-    ('vect_2_mat',numba.types.int32[:,:]),
-    ('mat_2_vect',numba.types.int32[:,:]),
-    ('n_dof_tot',numba.types.int32),
-    ('matrices_stencils', types.DictType(*all_stencils_tv) )
-]
-@jitclass(FEM2D_specs)
-class Numba2DFEM:
-    def __init__(self, geom, FEM1Dx, FEM1Dy=None):
-        self.FEM1Dx = FEM1Dx
-        if FEM1Dy is None:
-            self.FEM1Dy = FEM1Dx
-        else:
-            self.FEM1Dy = FEM1Dy
-
-        self.geom = geom
-        self.xx_dofs = typed.Dict.empty(*xx_dofs_tv)
-        self.n_dof_dir = typed.Dict.empty(*ndof_tv)
-        for k in range(geom.dim):
-            if k==0:
-                FEM1D = self.FEM1Dx
-            elif k==1:
-                FEM1D = self.FEM1Dy
-            xx_dofs_mat = np.zeros((len(self.geom.xx[k]), len(self.geom.dx[k]*FEM1D.nodes[:-1])))
-            for i in range(len(self.geom.xx[k])):
-                xx_dofs_mat[i,:] = self.geom.xx[k][i] + self.geom.dx[k]*FEM1D.nodes[:-1]
-            self.xx_dofs[k]   = np.reshape(xx_dofs_mat,-1)
-
-            if self.geom.BC[0]!=0: # non periodic case
-                if FEM1D.degree>1:
-                    for z in range(FEM1D.degree-1):
-                        self.xx_dofs[k] = np.delete(self.xx_dofs[k], -1)
-            self.n_dof_dir[k] = len(self.xx_dofs[k] )
-        self.n_dof_tot = self.n_dof_dir[0]*self.n_dof_dir[1]
-        self.vect_matr_maps()
-        self.assemble2D_stencils()
-
-    def vect_matr_maps(self):
-        self.vect_2_mat = np.zeros((self.n_dof_tot, 2),dtype=np.int32)
-        self.mat_2_vect = np.zeros((self.n_dof_dir[0],self.n_dof_dir[1]), dtype=np.int32)
-        global_idx = -1
-        for ix in range(self.n_dof_dir[0]):
-            xi = self.xx_dofs[0][ix]
-            for iy in range(self.n_dof_dir[1]):
-                yi = self.xx_dofs[1][iy]
-                global_idx +=1
-                self.vect_2_mat[global_idx,:] = [ix,iy]
-                self.mat_2_vect[ix,iy]        = global_idx
-                
-    def vect_to_mat(self, u_vec):
-        u_mat = np.zeros((self.n_dof_dir[0],self.n_dof_dir[1]))
-        for i in range(self.n_dof_tot):
-            u_mat[self.vect_2_mat[i,0],self.vect_2_mat[i,1]] =\
-                u_vec[i]
-        return u_mat
-
-    def mat_to_vect(self, u_mat):
-        u_vec = np.zeros(self.n_dof_tot)
-        for i in range(self.n_dof_tot):
-            u_vec[i] = u_mat[self.vect_2_mat[i,0],self.vect_2_mat[i,1]]
-        return u_vec
-    
-    def extend_vec(self,u):
-        degree_x = self.FEM1Dx.degree
-        degree_y = self.FEM1Dy.degree
-        Nx = self.n_dof_dir[0]
-        Ny = self.n_dof_dir[1]
-        if self.geom.BC[0] == 0:  # periodic in x
-            Nx_extend = Nx + 2*degree_x  #one extra cell on the right and one on the left
-        else:
-            Nx_extend = Nx + 3*degree_x -1 # two extra cells on the right (one dof already contained)
-        if self.geom.BC[1] == 0:  # periodic in x
-            Ny_extend = Ny + 2*degree_y  #one extra cell on the right and one on the left
-        else:
-            Ny_extend = Ny + 3*degree_y -1 # two extra cells on the right (one dof already contained)
-        u_ext = np.zeros((Nx_extend, Ny_extend))
-        u_ext[degree_x:Nx+degree_x,degree_y:Ny+degree_y] = u
-        if self.geom.BC[0] == 0:  # periodic in x
-            for i in range(degree_x):
-                u_ext[i,degree_y:-degree_y]    = u[-degree_x+i,:]
-                u_ext[-i-1,degree_y:-degree_y] = u[degree_x-i-1,:]
-        else:  #non periodic in x
-            for i in range(degree_x):
-                u_ext[i,degree_y:Ny+degree_y] = u[0,:]
-            for i in range(2*degree_x-1):
-                u_ext[-i-1,degree_y:Ny+degree_y] = u[-1,:]
-        if self.geom.BC[1] == 0: #periodic in y
-            for i in range(degree_y):
-                u_ext[:,i] = u_ext[:,-2*degree_y+i]
-                u_ext[:,-i-1] = u_ext[:,2*degree_y-1-i]
-        else:
-            for i in range(degree_y):
-                u_ext[:,i] = u_ext[:,degree_y]
-            for i in range(2*degree_y-1):
-                u_ext[:,-i-1] = u_ext[:,Ny+degree_y-1]
-        return u_ext
-
-    def stencils_product(self, stencil_x_y, u):
-        stencil_x = stencil_x_y.stencil_x
-        stencil_y = stencil_x_y.stencil_y
-        degree_x = self.FEM1Dx.degree
-        degree_y = self.FEM1Dy.degree
-        pr = np.zeros(u.shape)
-        u_ext = self.extend_vec(u) 
-        for ix_cell in range(self.geom.N_elem_dir[0]):
-            for ix_dof in range(degree_x):
-                for iy_cell in range(self.geom.N_elem_dir[1]):
-                    for iy_dof in range(degree_y):
-                        jxl, jxr = get_stencil_indexes(ix_cell, degree_x)
-                        jyl, jyr = get_stencil_indexes(iy_cell, degree_y)                    
-                        tmp_pr = stencil_x[ix_dof,:].T@\
-                                u_ext[jxl:jxr, jyl:jyr]@\
-                                stencil_y[iy_dof,:]
-                        pr[ix_cell*degree_x+ix_dof,iy_cell*degree_y+iy_dof] = tmp_pr
-                if self.geom.BC[1]!=0: # non periodic in y
-                    iy_cell = self.geom.N_elem_dir[1]
-                    iy_dof  = 0
-                    jxl, jxr = get_stencil_indexes(ix_cell, degree_x)
-                    jyl, jyr = get_stencil_indexes(iy_cell, degree_y)                   
-                    tmp_pr = stencil_x[ix_dof,:].T@\
-                            u_ext[jxl:jxr, jyl:jyr]@\
-                            stencil_y[iy_dof,:]
-                    pr[ix_cell*degree_x+ix_dof,iy_cell*degree_y+iy_dof] = tmp_pr
-        if self.geom.BC[0]!=0: # non periodic in x
-            ix_cell = self.geom.N_elem_dir[0]
-            ix_dof = 0
-            for iy_cell in range(self.geom.N_elem_dir[1]):
-                for iy_dof in range(degree_y):
-                    jxl, jxr = get_stencil_indexes(ix_cell, degree_x)
-                    jyl, jyr = get_stencil_indexes(iy_cell, degree_y)                    
-                    tmp_pr = stencil_x[ix_dof,:].T@\
-                            u_ext[jxl:jxr, jyl:jyr]@\
-                            stencil_y[iy_dof,:]
-                    pr[ix_cell*degree_x+ix_dof,iy_cell*degree_y+iy_dof] = tmp_pr
-            if self.geom.BC[1]!=0: # non periodic in y
-                iy_cell = self.geom.N_elem_dir[1]
-                iy_dof  = 0
-                jxl, jxr = get_stencil_indexes(ix_cell, degree_x)
-                jyl, jyr = get_stencil_indexes(iy_cell, degree_y)                
-                tmp_pr = stencil_x[ix_dof,:].T@\
-                        u_ext[jxl:jxr, jyl:jyr]@\
-                        stencil_y[iy_dof,:]
-                pr[ix_cell*degree_x+ix_dof,iy_cell*degree_y+iy_dof] = tmp_pr
-        return pr    
-
-    def assemble2D_stencils(self):
-
-        self.matrices_stencils = typed.Dict.empty(*all_stencils_tv)
-
-        self.matrices_stencils["mass"]       = Stencil_x_y(self.FEM1Dx.stencil["mass"]     *self.geom.dx[0],self.FEM1Dy.stencil["mass"]     *self.geom.dx[1])     
-        self.matrices_stencils["lump_mass"]  = Stencil_x_y(self.FEM1Dx.stencil["lump_mass"]*self.geom.dx[0],self.FEM1Dy.stencil["lump_mass"]*self.geom.dx[1])
-        self.matrices_stencils["IDx"]        = Stencil_x_y(self.FEM1Dx.stencil["deriv_j"]                  ,self.FEM1Dy.stencil["mass"]     *self.geom.dx[1])     
-        self.matrices_stencils["IDy"]        = Stencil_x_y(self.FEM1Dx.stencil["mass"]     *self.geom.dx[0],self.FEM1Dy.stencil["deriv_j"]                  )  
-        self.matrices_stencils["DxI"]        = Stencil_x_y(self.FEM1Dx.stencil["deriv_i"]                  ,self.FEM1Dy.stencil["mass"]     *self.geom.dx[1])     
-        self.matrices_stencils["DyI"]        = Stencil_x_y(self.FEM1Dx.stencil["mass"]     *self.geom.dx[0],self.FEM1Dy.stencil["deriv_i"]                  )  
-        self.matrices_stencils["IDxy"]       = Stencil_x_y(self.FEM1Dx.stencil["deriv_j"]                  ,self.FEM1Dy.stencil["deriv_j"]                  )  
-        self.matrices_stencils["DxDx"]       = Stencil_x_y(self.FEM1Dx.stencil["deriv_ij"] /self.geom.dx[0],self.FEM1Dy.stencil["mass"]     *self.geom.dx[1])     
-        self.matrices_stencils["DyDy"]       = Stencil_x_y(self.FEM1Dx.stencil["mass"]     *self.geom.dx[0],self.FEM1Dy.stencil["deriv_ij"] /self.geom.dx[1]) 
-        self.matrices_stencils["DxDy"]       = Stencil_x_y(self.FEM1Dx.stencil["deriv_i"]                  ,self.FEM1Dy.stencil["deriv_j"]                  )  
-        self.matrices_stencils["DyDx"]       = Stencil_x_y(self.FEM1Dx.stencil["deriv_j"]                  ,self.FEM1Dy.stencil["deriv_i"]                  )  
-        self.matrices_stencils["DxDxy"]      = Stencil_x_y(self.FEM1Dx.stencil["deriv_ij"] /self.geom.dx[0],self.FEM1Dy.stencil["deriv_j"]                  )  
-        self.matrices_stencils["DyDxy"]      = Stencil_x_y(self.FEM1Dx.stencil["deriv_j"]                  ,self.FEM1Dy.stencil["deriv_ij"] /self.geom.dx[1])                      
-        self.matrices_stencils["DxDx_tilde"] = Stencil_x_y(self.FEM1Dx.stencil["deriv_ij_tilde"]/self.geom.dx[0],self.FEM1Dy.stencil["der_int_tilde"]*self.geom.dx[1]) 
-        self.matrices_stencils["DyDy_tilde"] = Stencil_x_y(self.FEM1Dx.stencil["der_int_tilde"] *self.geom.dx[0],self.FEM1Dy.stencil["deriv_ij_tilde"]/self.geom.dx[1])
-        self.matrices_stencils["DxDy_tilde"] = Stencil_x_y(self.FEM1Dx.stencil["deriv_i_tilde"]                 ,self.FEM1Dy.stencil["deriv_j_bar"])
-        self.matrices_stencils["DyDx_tilde"] = Stencil_x_y(self.FEM1Dx.stencil["deriv_j_bar"]                   ,self.FEM1Dy.stencil["deriv_i_tilde"])
-        self.matrices_stencils["IDx_tilde"]  = Stencil_x_y(self.FEM1Dx.stencil["deriv_j_bar"]                   ,self.FEM1Dy.stencil["der_int_tilde"]*self.geom.dx[1])                 
-        self.matrices_stencils["IDy_tilde"]  = Stencil_x_y(self.FEM1Dx.stencil["der_int_tilde"]*self.geom.dx[0] ,self.FEM1Dy.stencil["deriv_j_bar"])   
-        self.matrices_stencils["mass_tilde_x"]=Stencil_x_y(self.FEM1Dx.stencil["der_int_tilde"]*self.geom.dx[0] ,self.FEM1Dy.stencil["mass_bar"]*self.geom.dx[1]) 
-        self.matrices_stencils["mass_tilde_y"]=Stencil_x_y(self.FEM1Dx.stencil["mass_bar"]*self.geom.dx[0]      ,self.FEM1Dy.stencil["der_int_tilde"]*self.geom.dx[1])
-        self.matrices_stencils["DxI_tilde"]  = Stencil_x_y(self.FEM1Dx.stencil["deriv_i_tilde"]                 ,self.FEM1Dy.stencil["mass_bar"]*self.geom.dx[1]) 
-        self.matrices_stencils["DyI_tilde"]  = Stencil_x_y(self.FEM1Dx.stencil["mass_bar"]*self.geom.dx[0]      ,self.FEM1Dy.stencil["deriv_i_tilde"]) 
-        self.matrices_stencils["int_y"]      = Stencil_x_y(self.FEM1Dx.stencil["mass"]*self.geom.dx[0]          ,self.FEM1Dy.stencil["int_mat"]*self.geom.dx[1]**2) 
-        self.matrices_stencils["int_x"]      = Stencil_x_y(self.FEM1Dx.stencil["int_mat"]*self.geom.dx[0]**2    ,self.FEM1Dy.stencil["mass"]*self.geom.dx[1]) 
-        self.matrices_stencils["int_y_tilde"]= Stencil_x_y(self.FEM1Dx.stencil["der_int_tilde"]*self.geom.dx[0] ,self.FEM1Dy.stencil["int_mat"]*self.geom.dx[1]**2) 
-        self.matrices_stencils["int_x_tilde"]= Stencil_x_y(self.FEM1Dx.stencil["int_mat"]*self.geom.dx[0]**2    ,self.FEM1Dy.stencil["der_int_tilde"]*self.geom.dx[1]) 
-        self.matrices_stencils["DxM_tilde"]  = Stencil_x_y(self.FEM1Dx.stencil["der_int_tilde"]*self.geom.dx[0] ,self.FEM1Dy.stencil["int_mat"]*self.geom.dx[1]**2) 
-        self.matrices_stencils["DyM_tilde"]  = Stencil_x_y(self.FEM1Dx.stencil["int_mat"]*self.geom.dx[0]**2    ,self.FEM1Dy.stencil["der_int_tilde"]*self.geom.dx[1]) 
-        self.matrices_stencils["inv_lump"]   = Stencil_x_y(invert_nnz(self.matrices_stencils["lump_mass"].stencil_x), invert_nnz(self.matrices_stencils["lump_mass"].stencil_y))
-
-
-@numba.njit(parallel=True)
-def theta_pr(theta, u):
-    zz = np.zeros((u.shape[1], u.shape[2]))
-    for i in range(u.shape[0]):
-        zz[:,:]+= theta[i]*u[i,:,:]
-    return zz
-
-
-
-# all_matrices_tv = (types.unicode_type, matrix_def_tv)
-# all_matrices_coeff_tv = (types.unicode_type, matrix_coeff_tv)
-# numba_fem_tv = (types.unicode_type, Numba2DFEM.class_type.instance_type)
-
-
-# Numba_solver_specs=[
-#     ('FEM2D',Numba2DFEM.class_type.instance_type),
-#     ('geom',  CartesianGeometry.class_type.instance_type),
-#     ('dec',  DeC.class_type.instance_type),
-#     ('problem',  DeC.class_type.instance_type),
-#     ('xx_dofs',  types.DictType(*xx_dofs_tv)),
-#     ('n_dof_dir',types.DictType(*ndof_tv)),
-#     ('vect_2_mat',numba.types.int32[:,:]),
-#     ('mat_2_vect',numba.types.int32[:,:]),
-#     ('n_dof_tot',numba.types.int32),
-#     ('matrices_stencils', types.DictType(*all_stencils_tv) )
-# ]
-# @jitclass(Numba_solver_specs)
-class NumbaDeCSpaceTimeSUPGSolver:
-    def __init__(self, problem, FEM2D, dec, GF=False):
-        self.FEM2D   = FEM2D
-        self.geom    = self.FEM2D.geom 
-        self.dec     = dec
-        self.problem = problem
-        self.set_ic()
-        self.CFL     = 0.1
-        self.Nt_save = 35
-        self.Nt_max  = 1000000
-        self.GF      = GF
-
-    def set_ic(self):
-        self.ic_mat = dict()
-        for var in self.problem.vars:
-            self.ic_mat[var] = np.array([[
-                        self.problem.ics[var](x,y) for y in self.FEM2D.xx_dofs[1]
-                    ] for x in self.FEM2D.xx_dofs[0]
-                ])
-            
-    def set_CFL(self, CFL):
-        self.CFL = CFL
-    def set_save_slabs(self, Nt_save):
-        self.Nt_save = max(Nt_save,3)
-    def set_Nt_max(self, Nt_max):
-        self.Nt_max = Nt_max
-
-    def solve(self, stab_coeff = None, with_error = False, GF=None):
-        if GF is not None:
-            self.GF = GF
-        if self.GF:
-            DeC_one_step = DeC_one_step_SUPG_GF
-        else:
-            DeC_one_step = DeC_one_step_SUPG
-
-        if with_error:
-            error = np.zeros(len(self.problem.vars))
-        else:
-            error = None
-
-        if stab_coeff is None:
-            if self.FEM2D.FEM1Dx.degree==1:
-                al = 0.5
-            elif self.FEM2D.FEM1Dx.degree == 2:
-                al = 0.05
-            else:
-                al = 5*10**-self.FEM2D.FEM1Dx.degree
-        else:
-            al = stab_coeff
-        
-        dt_save = self.problem.T_fin/(self.Nt_save-2)
-
-        q_save = dict() 
-
-        it = 0
-        t=0.
-        t_save  = 0.
-        it_save = 0
-        L2 = typed.Dict.empty(
-            key_type=types.unicode_type,
-            value_type=types.float64[:,:],
-        ) 
-        for var in ("u", "v", "p"):
-            L2[var] = np.zeros((self.FEM2D.n_dof_dir[0], self.FEM2D.n_dof_dir[1]))
-            q_save[var] = np.zeros((self.Nt_save, self.FEM2D.n_dof_dir[0], self.FEM2D.n_dof_dir[1]))
-        tt_save = np.zeros(self.Nt_save)
-
-
-        q_prev = typed.Dict.empty(
-            key_type=types.unicode_type,
-            value_type=types.float64[:,:,:],
-        ) 
-        q_now = typed.Dict.empty(
-            key_type=types.unicode_type,
-            value_type=types.float64[:,:,:],
-        )
-
-        q      = np.zeros((len(self.problem.vars), self.FEM2D.n_dof_dir[0], self.FEM2D.n_dof_dir[1])) 
-        for var in ("u", "v", "p"):
-            q_prev[var] = np.zeros((self.dec.n_subNodes, self.FEM2D.n_dof_dir[0], self.FEM2D.n_dof_dir[1]))
-            q_now[var]  = np.zeros((self.dec.n_subNodes, self.FEM2D.n_dof_dir[0], self.FEM2D.n_dof_dir[1]))
-            for i in range(self.dec.n_subNodes):
-                q_now[var][i,:,:] = self.ic_mat[var]
-
-        for var in ("u", "v", "p"):
-            q_save[var][it_save,:,:] = q_now[var][-1,:,:]
-        tt_save[it_save] = t
-
-        tic = time.time()
-        while (t<self.problem.T_fin and it<self.Nt_max):
-            # Initialize variables
-            for ivar, var in enumerate(self.problem.vars):
-                q[ivar,:,:] = q_now[var][-1,:,:]
-                for i in range(self.dec.M_sub):
-                    q_now[var][i,:,:] = q_now[var][-1,:,:] # previous timestep last update
-            print("Iteration %07d, time %1.5f, max vars %1.3f  %1.3f  %1.3f "%(it,t,\
-                    np.max(q[0,:]),np.max(q[1,:]),np.max(q[2,:]) ) , end="\r")
-            # Set dt
-            dt =  0.1* self.geom.dx_min#self.CFL * self.problem.max_dt(q, self.geom.dx)
-            c = self.problem.c
-
-            for k in range(self.dec.n_iter):
-                # Update variables
-                for var in self.problem.vars:
-                    q_prev[var][:,:,:] = q_now[var][:,:,:]
-
-                # Compute L2 high order space time discretization of the residual
-                # And update of q_now
-                DeC_one_step(self.FEM2D, self.dec, self.problem.c, dt, al, q_prev, L2, q_now)
-            
-            for ivar, var in enumerate(self.problem.vars):
-                q[ivar,:,:] = q_now[var][-1,:,:]
-
-            it+=1
-            t=t+dt
-            t_save+=dt
-            if t_save > dt_save:
-                it_save+=1
-                t_save = 0.
-                for var in self.problem.vars:
-                    q_save[var][it_save,:,:] = q_now[var][-1,:,:]
-                tt_save[it_save] = t
-
-        print("Iteration %07d, time %1.5f, max vars %1.3f  %1.3f  %1.3f "%(it,t,\
-                np.max(q[0,:]),np.max(q[1,:]),np.max(q[2,:]) ) )
-
-
-        # Final step to save
-        it_save+=1
-        Nt_save = it_save
-        for var in self.problem.vars:
-            q_save[var][it_save,:,:] = q_now[var][-1,:,:]
-            q_save[var] = q_save[var][:Nt_save+1,:,:]
-        tt_save[it_save] = t
-        tt_save = tt_save[:Nt_save+1] 
-        comp_time = time.time() - tic 
-        print("Simulation over in %1.2f seconds"%comp_time)
-
-
-        if with_error and self.problem.exact is not None:
-            print("Computing exact solution and error")
-            for it_save, t in enumerate(tt_save):
-                if it_save == 0:
-                    continue
-                # Computing error
-                dt_tmp = tt_save[it_save]- tt_save[it_save-1]
-                for ivar, var in enumerate(self.problem.vars):
-                    ex = np.array([[
-                        self.problem.exact[var](x,y,t) for y in self.FEM2D.xx_dofs[1]
-                        ] for x in self.FEM2D.xx_dofs[0]
-                    ])
-                    error[ivar] += np.linalg.norm(q_save[var][it_save,:,:]-ex)/np.sqrt(self.FEM2D.n_dof_tot)*dt_tmp
-
-        print("")
-       
-        return q_save, tt_save, error, comp_time
-    
-
-@numba.njit(parallel=True)
-def DeC_one_step_SUPG(FEM2D, dec, c, dt, al, q_prev, L2, q_now):
-    # Compute L2 high order space time discretization of the residual
-    theta = dec.theta
-    op = FEM2D.matrices_stencils
-    for m in range(1,dec.n_subNodes):
-        L2["u"][:,:] = FEM2D.stencils_product(op["mass"],(q_prev["u"][m]-q_prev["u"][0])/dt) +\
-            c*FEM2D.stencils_product(op["IDx"], theta_pr(theta[m,:] , q_prev["p"]) )+\
-            al*FEM2D.geom.dx_min*FEM2D.stencils_product(op["DxI"],(q_prev["p"][m,:]-q_prev["p"][0])/dt)+\
-            c*al*FEM2D.geom.dx_min*FEM2D.stencils_product(op["DxDx"],theta_pr(theta[m,:],q_prev["u"]))+\
-            c*al*FEM2D.geom.dx_min*FEM2D.stencils_product(op["DxDy"],theta_pr(theta[m,:],q_prev["v"]))
-
-        L2["v"][:,:] = FEM2D.stencils_product(op["mass"],(q_prev["v"][m]-q_prev["v"][0])/dt)+\
-            c*FEM2D.stencils_product(op["IDy"],theta_pr(theta[m,:] , q_prev["p"]) )+\
-            al*FEM2D.geom.dx_min*FEM2D.stencils_product(op["DyI"],(q_prev["p"][m,:]-q_prev["p"][0])/dt)+\
-            c*al*FEM2D.geom.dx_min*FEM2D.stencils_product(op["DyDx"],theta_pr(theta[m,:],q_prev["u"]))+\
-            c*al*FEM2D.geom.dx_min*FEM2D.stencils_product(op["DyDy"],theta_pr(theta[m,:],q_prev["v"]))
-        
-        L2["p"][:,:] = FEM2D.stencils_product(op["mass"],(q_prev["p"][m]-q_prev["p"][0])/dt)+\
-            c*FEM2D.stencils_product(op["IDx"],theta_pr(theta[m], q_prev["u"]))+\
-            c*FEM2D.stencils_product(op["IDy"],theta_pr(theta[m], q_prev["v"]))+\
-            al*FEM2D.geom.dx_min*FEM2D.stencils_product(op["DxI"],(q_prev["u"][m]-q_prev["u"][0])/dt)+\
-            al*FEM2D.geom.dx_min*FEM2D.stencils_product(op["DyI"],(q_prev["v"][m]-q_prev["v"][0])/dt)+\
-            c*al*FEM2D.geom.dx_min*FEM2D.stencils_product(op["DxDx"],theta_pr(theta[m,:],q_prev["p"]))+\
-            c*al*FEM2D.geom.dx_min*FEM2D.stencils_product(op["DyDy"],theta_pr(theta[m,:],q_prev["p"]))
-
-        # Update the value with formula
-        # L^1(q^{k+1}) = L^1(q^{k}) - L^2(q^{k})
-
-        for var in ("u","v","p"):
-            q_now[var][m,:,:] = q_prev[var][m,:,:] - dt*FEM2D.stencils_product(op["inv_lump"],L2[var])
-
-@numba.njit(parallel=True)
-def DeC_one_step_SUPG_GF(FEM2D, dec, c, dt, al, q_prev, L2, q_now):
-    # Compute L2 high order space time discretization of the residual
-    theta=dec.theta
-    op = FEM2D.matrices_stencils
-    for m in range(1,dec.n_subNodes):
-        L2["u"][:,:] = FEM2D.stencils_product(op["mass"],(q_prev["u"][m]-q_prev["u"][0])/dt)+\
-            c*FEM2D.stencils_product(op["IDx"], theta_pr(theta[m,:] , q_prev["p"] ))+\
-            al*FEM2D.geom.dx_min*FEM2D.stencils_product(op["DxI"],(q_prev["p"][m]-q_prev["p"][0])/dt)+\
-            c*al*FEM2D.geom.dx_min*FEM2D.stencils_product(op["DxDx_tilde"],theta_pr(theta[m,:]@q_prev["u"]))+\
-            c*al*FEM2D.geom.dx_min*FEM2D.stencils_product(op["DxDy_tilde"],theta_pr(theta[m,:]@q_prev["v"]))
-
-        L2["v"][:,:] = FEM2D.stencils_product(op["mass"],(q_prev["v"][m,:]-q_prev["v"][0])/dt)+\
-            c*FEM2D.stencils_product(op["IDy"],theta_pr(theta[m,:] , q_prev["p"]) )+\
-            al*FEM2D.geom.dx_min*FEM2D.stencils_product(op["DyI"],(q_prev["p"][m]-q_prev["p"][0])/dt)+\
-            c*al*FEM2D.geom.dx_min*FEM2D.stencils_product(op["DyDx_tilde"],theta_pr(theta[m,:],q_prev["u"]))+\
-            c*al*FEM2D.geom.dx_min*FEM2D.stencils_product(op["DyDy_tilde"],theta_pr(theta[m,:],q_prev["v"]))
-        
-        L2["p"][:,:] = FEM2D.stencils_product(op["mass"],(q_prev["p"][m]-q_prev["p"][0])/dt)+\
-            c*FEM2D.stencils_product(op["IDx_tilde"],theta_pr(theta[m], q_prev["u"]))+\
-            c*FEM2D.stencils_product(op["IDy_tilde"],theta_pr(theta[m], q_prev["v"]))+\
-            al*FEM2D.geom.dx_min*FEM2D.stencils_product(op["DxI"],(q_prev["u"][m]-q_prev["u"][0])/dt)+\
-            al*FEM2D.geom.dx_min*FEM2D.stencils_product(op["DyI"],(q_prev["v"][m]-q_prev["v"][0])/dt)+\
-            c*al*FEM2D.geom.dx_min*FEM2D.stencils_product(op["DxDx"],theta_pr(theta[m],q_prev["p"]))+\
-            c*al*FEM2D.geom.dx_min*FEM2D.stencils_product(op["DyDy"],theta_pr(theta[m],q_prev["p"]))
-
-        # Update the value with formula
-        # L^1(q^{k+1}) = L^1(q^{k}) - L^2(q^{k})
-
-        for var in ("u","v","p"):
-            q_now[var][m,:,:] = q_prev[var][m,:,:] - dt*FEM2D.stencils_product(op["inv_lump"],L2[var])
-
-
-@numba.njit
-def get_stencil_indexes(i_cell, degree):
-    jl = (i_cell-1)*degree +degree
-    jr = (i_cell+2)*degree +degree
-    return jl, jr
 
 
 def invert_lumped_matrix(lump):
@@ -2315,7 +1730,7 @@ def invert_lumped_matrix(lump):
     return dia_matrix((dd.reshape((1,-1)),np.array([0])), shape=(siz,siz))
 
 def put_zero_row_in_csr(A, i):
-    if type(div_oper)==sparse.csr.csr_matrix:
+    if type(A)==sparse.csr.csr_matrix:
         A.data[A.indptr[i]:A.indptr[i+1]] = 0
     else:
         raise ValueError("The type of the matrix is not csr to put to zero the row")

@@ -26,20 +26,20 @@ def plot_sol(FEM2D, uu, ax, fig, levels = None, no_boundaries = False):
     ax.axis("equal")
     fig.colorbar(cnt, ax=ax)
 
-def plot_all_sols(problem, FEM2D, q_save, it, time, levels=None):
+def plot_all_sols(problem, FEM2D, q_save, it, time, levels=None, tol_colorbar=1e-13):
+
+    if levels is None:
+        levels = 30
+
     fig, axs = plt.subplots(1,problem.n_eq, figsize=(15,4))
     for k, var in enumerate(problem.vars):
         axs[k].set_title(var)
-        if levels is None:
-            if it is None:
-                plot_sol(FEM2D,q_save[var][:], axs[k],fig) 
-            else:
-                plot_sol(FEM2D,q_save[var][it,:], axs[k],fig) 
+        if it is None:
+            level_list = np.linspace(q_save[var][:].min()-tol_colorbar, q_save[var][:].max()+tol_colorbar, levels) if isinstance(levels,int) else levels
+            plot_sol(FEM2D,q_save[var][:], axs[k],fig, level_list) 
         else:
-            if it is None:
-                plot_sol(FEM2D,q_save[var][:], axs[k],fig, levels) 
-            else:
-                plot_sol(FEM2D,q_save[var][it,:], axs[k],fig, levels) 
+            level_list = np.linspace(q_save[var][it,:].min()-tol_colorbar, q_save[var][it,:].max()+tol_colorbar, levels) if isinstance(levels,int) else levels
+            plot_sol(FEM2D,q_save[var][it,:], axs[k],fig, level_list) 
     fig.suptitle("Time %1.4f"%time)
     return fig
 

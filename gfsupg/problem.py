@@ -39,7 +39,7 @@ class LinearAcoustic2D(ConservationLaw):
 
     def max_dt(self, q_all, dx):
         """ to be improved! this is slow!!"""
-        dt_max = np.min(dx) / abs(self.c) 
+        dt_max = np.min(dx) / np.abs(self.c) 
         return dt_max
 
     def define_parameters(self):
