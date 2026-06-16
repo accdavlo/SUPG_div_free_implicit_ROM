@@ -68,7 +68,7 @@ def plot_kernel(null_space, null_space_name):
     plot_vector(b,N_cell,FEM1Dx,null_space_name)
 
 kernel_folder = "kernels"
-os.system(f"mkdir {kernel_folder}")
+os.makedirs(kernel_folder, exist_ok=True)
 
 
 #problem.T_fin = 1.

@@ -7,13 +7,11 @@ from gfsupg.plotting import *
 import matplotlib.pyplot as plt
 
 
-#problem.T_fin = 1.
-order=3
+order=2
 
 FEM1Dx = FiniteElement1D(order-1,"gaussLobatto","gaussLobatto")
 FEM1Dy = FiniteElement1D(order-1,"gaussLobatto","gaussLobatto")
 dec = DeC((order+1)//2,order,"gaussLobatto")
-# dec = DeC(4,5,"gaussLobatto")
 
 
 # problem = SmoothVortexTestCase(is_long=True)#, pert_coeff=1e-3, pert_type="an") #LinearAdvection("smooth_vortex_long")

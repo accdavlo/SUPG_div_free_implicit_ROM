@@ -85,7 +85,7 @@ class Maxwell2D(ConservationLaw):
 
         
         self.geometry_folder = "Geometry_"+self.geometry_name+"/"
-        os.system("mkdir %s"%self.geometry_folder)
+        os.makedirs(self.geometry_folder, exist_ok=True)
 
     def dirichlet_BC(self):
 

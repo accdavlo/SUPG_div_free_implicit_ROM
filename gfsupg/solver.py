@@ -1,3 +1,15 @@
+"""Core finite-element operators and DeC time integration for 2D acoustics.
+
+This module provides:
+- Cartesian geometry and 1D/2D FEM operator assembly.
+- Discrete differential operators for divergence/curl-aware formulations.
+- DeC space-time solver with SUPG/OSS stabilization variants.
+- Utility routines for sparse-matrix boundary handling.
+
+The implementation focuses on structured Cartesian meshes and high-order
+Lagrange bases, with both standard and global-flux (GF) formulations.
+"""
+
 import numpy as np
 from scipy.sparse import coo_matrix,csr_matrix, lil_matrix, dia_matrix
 import scipy.sparse as sp
@@ -163,6 +175,23 @@ class FiniteElement1D:
 
 
 class Scipy2DFEM:
+    """Assemble and store 2D FEM operators on a Cartesian tensor-product mesh.
+
+    Parameters
+    ----------
+    geom:
+        Cartesian geometry descriptor.
+    FEM1Dx, FEM1Dy:
+        1D finite-element definitions in x/y. If `FEM1Dy` is `None`, the same
+        discretization as x is used in y.
+    folder:
+        Optional folder used for reading/writing serialized operators.
+    force_matrix_assembly:
+        If `True`, forces assembly even when serialized operators exist.
+    save_operators:
+        If `True`, assembled operators are serialized to disk.
+    """
+
     def __init__(self, geom, FEM1Dx, FEM1Dy=None, folder = None, force_matrix_assembly = False, save_operators = False):
         
         self.save_operators = save_operators
@@ -663,6 +692,8 @@ class Scipy2DFEM:
         return self.operator["inv_lump"]@(self.operator["IDy"]@q["u"]-self.operator["IDx"]@q["v"])
 
     def compute_discrete_curl_involution(self, q, alpha, dx,dy):
+        """Discrete involution with stabilization terms that should be preserved
+        consistent with a curl"""
         op = self.operator
         K_u = dx*op["DxDx"]@q["u"]+dy*op["DyDy"]@q["u"]
         K_v = dx*op["DxDx"]@q["v"]+dy*op["DyDy"]@q["v"]
@@ -674,6 +705,7 @@ class Scipy2DFEM:
         return self.operator["inv_lump"]@(self.operator["inv_lump"]@omega_q)
 
     def compute_discrete_curl_involution_all(self, qall, alpha, dx,dy):
+        """Computing the curl involution on all solutions (e.g. in time)"""
         if len(qall["u"].shape)==1:
             return self.compute_discrete_curl_involution(qall,alpha,dx,dy)
         else:
@@ -957,12 +989,14 @@ class Scipy2DFEM:
         return source
     
     def well_prepare_p_coriolis(self, q_vec, problem):
+        """For coriolis systems, the pressure at equilibrium balances the coriolis source
+        In particular \partial_x p  = c v and \partial_y p = -c u
+        So p = \int^x c v dx + const(y) and p = -\int^y c u dy + const(x)
+        Choosing any average of the two makes it work"""
             p0 = q_vec["p"][0]
             a = 0.5
 
             p_mat = self.vect_to_mat(q_vec["p"])
-            # u_mat = self.vect_to_mat(q_vec["u"])
-            # v_mat = self.vect_to_mat(q_vec["v"])
 
             p_new = np.zeros(p_mat.shape)
             Ixv   = np.zeros(p_mat.shape)
@@ -1019,11 +1053,6 @@ class Scipy2DFEM:
             #  2 (Ixv-Iyu) * [a(Ixv-Iyu) + p0+Iyu-p |=0
             # a =  -(Ixv-Iyu)*(p0+Iyu-p)/ ((Ixv-Iyu)*(Ixv-Iyu))
 
-            # optimize a and b
-            # min_a || p0 + a Ixv+ (1-a) Iyu -p||^2=||a (Ixv-Iyu)+ p0 + Iyu -p||^2
-            #  2 (Ixv-Iyu) * [a(Ixv-Iyu) + p0+Iyu-p |=0
-            # a =  -(Ixv-Iyu)*(p0+Iyu-p)/ ((Ixv-Iyu)*(Ixv-Iyu))
-
             # a = - np.sum((Ixv-Iyu)*(p0+Iyu-p_mat))/(np.sum((Ixv-Iyu)*(Ixv-Iyu)))
             # p_new[:,:] = p0 + a*Ixv + (1-a)*Iyu
             # p_new[:,:] = p0 + Ixv + Iyu
@@ -1049,12 +1078,6 @@ class Scipy2DFEM:
             p_new = p0 + a*(Ixv + p_aux_y)+(1-a)*(Iyu+p_aux_x)
 
             p_vec = self.mat_to_vect(p_new)
-
-            # pp = plt.contourf(self.vect_to_mat(problem.c*self.operator["IDy"]@p_vec - self.operator["mass_tilde_y"]@self.mat_to_vect(source_v))[1:-1,1:-1])
-            # plt.colorbar(pp)
-            # plt.figure()
-            # pp = plt.contourf(self.vect_to_mat(problem.c*self.operator["IDx"]@p_vec - self.operator["mass_tilde_x"]@self.mat_to_vect(source_u))[1:-1,1:-1])
-            # plt.colorbar(pp)
             
             return p_vec
 
@@ -1096,6 +1119,8 @@ def assemble_1D_sparse_matrix(xx_dofs_dir, FEM1D_dir, stencil_dir, geom, n_dof_d
     return index_i, index_j, values
 
 class Dirichlet_BC_set:
+    """Container for Dirichlet boundary indexes and values per variable."""
+
     def __init__(self, indexes, dirichlet_vector):
         self.indexes = indexes
         self.dirichlet_vector = dirichlet_vector
@@ -1103,6 +1128,16 @@ class Dirichlet_BC_set:
 
 
 class DeC:
+    """Deferred Correction (DeC) temporal quadrature coefficients.
+
+    Attributes
+    ----------
+    theta:
+        Integration coefficients mapping sub-step residuals to each node.
+    beta:
+        Sub-node positions in the normalized time interval [0, 1].
+    """
+
     def __init__(self, M_sub, n_iter, nodes_type):
         self.n_subNodes = M_sub+1
         self.M_sub = M_sub
@@ -1127,6 +1162,12 @@ class DeC:
     
   
 class DeCSpaceTimeSUPGSolver:
+    """Space-time DeC solver for 2D acoustics with SUPG/OSS stabilization.
+
+    The solver advances the state `(u, v, p)` on a fixed structured mesh using
+    high-order finite elements in space and DeC iterations in time.
+    """
+
     def __init__(self, problem, FEM2D, DeC, GF=False, stab = "SUPG", trick_second_der = False):
         self.FEM2D   = FEM2D
         self.geom    = self.FEM2D.geom 
@@ -1144,6 +1185,9 @@ class DeCSpaceTimeSUPGSolver:
         self.set_second_derivative_operators()
 
     def set_second_derivative_operators(self):
+        """If trick second der is used, then instead of the second derivative operator
+        we set the composition of the first derivative operators with 
+        the inverse of the lumped mass matrix to match the kernels of the central part"""
         op = self.FEM2D.operator
         if self.trick_second_der:
             op["DxDx2"] = op["DxI"]@op["inv_lump"]@op["IDx"]
@@ -1298,6 +1342,36 @@ class DeCSpaceTimeSUPGSolver:
     def solve(self, stab_coeff = None, with_error = False, \
               with_error_vertex = False, GF=None, CFL = None, \
               save_sol = False, stab = None, trick_second_der = False, curl_stab_flag = False):
+        """Run a full transient simulation.
+
+        Parameters
+        ----------
+        stab_coeff:
+            Optional stabilization coefficient. If `None`, defaults are chosen
+            from polynomial degree and stabilization type.
+        with_error, with_error_vertex:
+            If enabled and an exact solution is available, compute errors 
+            varying in time averaging on all dofs or on vertex dofs.
+        GF:
+            Optional override for global-flux formulation flag.
+        CFL:
+            Optional override for time-step scaling.
+        save_sol:
+            If truthy, writes final state and diagnostics to a pickle file.
+        stab:
+            Optional override for stabilization method (`SUPG` or `OSS`).
+        trick_second_der:
+            If changed, uses other second-derivative-related operators.
+        curl_stab_flag:
+            Adds optional curl-based OSS stabilization for velocity components.
+
+        Returns
+        -------
+        q_save, tt_save, comp_time, error, error_vertex
+            Saved solution snapshots, saved times, wall time, and optional
+            error arrays.
+        """
+
         if CFL is not None:
             self.set_CFL(CFL)
         if GF is not None:
@@ -1519,6 +1593,12 @@ class DeCSpaceTimeSUPGSolver:
     
 
 def define_sources(all_sources, q_prev, sub_sources, theta_m, cor, coriolis_not_uni, fric):
+    """Build momentum and pressure source terms in semi-discrete form.
+
+    Signs follow the convention used in `DeC_one_step`, where the assembled
+    source terms are moved to the left-hand side of the residual equations.
+    """
+
     all_sources["u"][:] = -cor* (theta_m @ q_prev["v"])\
             - theta_m @ (q_prev["v"]*coriolis_not_uni)\
             + fric* (theta_m @ q_prev["u"])\
@@ -1532,6 +1612,9 @@ def define_sources(all_sources, q_prev, sub_sources, theta_m, cor, coriolis_not_
 
 
 def define_residuals(galer_residuals, q_prev,all_sources,m,op,c,dx_min , al, theta_m, dt):
+
+    """Assemble Galerkin residuals (no stabilization) 
+    for the standard (non-GF) formulation."""
 
     galer_residuals["u"][:] = op["mass"]@(q_prev["u"][m,:]-q_prev["u"][0,:])/dt\
         +c*   op["IDx"] @(theta_m @ q_prev["p"] )\
@@ -1550,6 +1633,8 @@ def define_residuals(galer_residuals, q_prev,all_sources,m,op,c,dx_min , al, the
 
 def define_GF_residuals(galer_residuals, q_prev,all_sources,m,op,c,dx_min , al, theta_m, dt):
 
+    """Assemble Galerkin residuals for the global-flux (GF) formulation."""
+
     galer_residuals["u"][:] = op["mass"]@(q_prev["u"][m,:]-q_prev["u"][0,:])/dt\
         +c*op["IDx"]@(theta_m @ q_prev["p"] )\
         +  op["mass_tilde_x"]@all_sources["u"]
@@ -1567,6 +1652,8 @@ def define_GF_residuals(galer_residuals, q_prev,all_sources,m,op,c,dx_min , al, 
 
 def SUPG_stabilization(all_stabs, q_prev,all_sources,m,op,c,dx_min , al, theta_m, dt):
           
+    """Compute SUPG stabilization contributions for the standard formulation."""
+
     all_stabs["u"][:] = \
             al*dx_min*op["DxI"] @(q_prev["p"][m,:]-q_prev["p"][0,:])/dt\
         +c*al*dx_min*op["DxDx2"]@(theta_m@q_prev["u"])\
@@ -1592,6 +1679,8 @@ def SUPG_stabilization(all_stabs, q_prev,all_sources,m,op,c,dx_min , al, theta_m
 
 
 def SUPG_GF_stabilization(all_stabs, q_prev,all_sources,m,op,c,dx_min , al, theta_m, dt):
+    """Compute SUPG stabilization contributions for the GF formulation."""
+
     all_stabs["u"][:] = \
            al*dx_min*op["DxI"]@(q_prev["p"][m,:]-q_prev["p"][0,:])/dt\
         +c*al*dx_min*op["DxDx2_tilde"]@(theta_m@q_prev["u"])\
@@ -1617,6 +1706,8 @@ def SUPG_GF_stabilization(all_stabs, q_prev,all_sources,m,op,c,dx_min , al, thet
 
 def OSS_stabilization(all_stabs, q_prev,all_sources,m,op,c,dx_min , al, theta_m, dt):
           
+    """Compute OSS stabilization for the standard formulation."""
+
     all_stabs["u"][:] = \
          c*al*dx_min*op["ZxMy"]@(theta_m@q_prev["u"])
 
@@ -1634,6 +1725,8 @@ def OSS_stabilization(all_stabs, q_prev,all_sources,m,op,c,dx_min , al, theta_m,
 
 def OSS_GF_stabilization(all_stabs, q_prev,all_sources,m,op,c,dx_min , al, theta_m, dt):
     
+
+    """Compute OSS stabilization for the GF formulation."""
 
     all_stabs["u"][:] = \
          c*al*dx_min*(op["ZxMy_tilde"]@(theta_m@q_prev["u"])\
@@ -1663,6 +1756,8 @@ def OSS_GF_stabilization(all_stabs, q_prev,all_sources,m,op,c,dx_min , al, theta
 
 
 def OSS_curl_stabilization(all_stabs, q_prev,all_sources,m,op,c,dx_min , al, theta_m, dt):
+    """Compute optional curl-targeted OSS stabilization (standard operators)."""
+
     beta_m = np.sum(theta_m)
     dtu = (q_prev["u"][m]-q_prev["u"][0])/dt/beta_m - all_sources["u"]
     dtv = (q_prev["v"][m]-q_prev["v"][0])/dt/beta_m - all_sources["v"]
@@ -1675,6 +1770,8 @@ def OSS_curl_stabilization(all_stabs, q_prev,all_sources,m,op,c,dx_min , al, the
 
 
 def OSS_GF_curl_stabilization(all_stabs, q_prev,all_sources,m,op,c,dx_min , al, theta_m, dt):
+    """Compute optional curl-targeted OSS stabilization (GF operators)."""
+
     beta_m = np.sum(theta_m)
     dtu = (q_prev["u"][m]-q_prev["u"][0])/dt/beta_m - all_sources["u"]
     dtv = (q_prev["v"][m]-q_prev["v"][0])/dt/beta_m - all_sources["v"]
@@ -1689,6 +1786,12 @@ def OSS_GF_curl_stabilization(all_stabs, q_prev,all_sources,m,op,c,dx_min , al, 
 def DeC_one_step(problem, DeC, FEM2D, dt, al, stab_curl_coeff, q_prev, L2, q_now,\
                        sub_sources, coriolis_not_uni, get_residual, get_stabilization, curl_stabilization,\
                        dirichlet_BC = None, curl_stab_flag=False):
+    """Perform one DeC correction sweep over all sub-nodes.
+
+    This routine assembles sources, residuals, and stabilization terms for each
+    DeC sub-node and applies one explicit update using `inv_lump`.
+    """
+
     # Compute L2 high order space time discretization of the residual
 
     c   = problem.c
@@ -1732,6 +1835,8 @@ def DeC_one_step(problem, DeC, FEM2D, dt, al, stab_curl_coeff, q_prev, L2, q_now
 
 
 def get_stencil_indexes(i_cell, degree):
+    """Return left/right stencil bounds for a 1D cell index."""
+
     jl = (i_cell-1)*degree +degree
     jr = (i_cell+2)*degree +degree
     return jl, jr
@@ -1739,18 +1844,24 @@ def get_stencil_indexes(i_cell, degree):
 
 
 def invert_lumped_matrix(lump):
+    """Return diagonal inverse of a lumped mass matrix in sparse format."""
+
     ll = dia_matrix(lump)
     dd = 1./ll.diagonal()
     siz = len(dd)
     return dia_matrix((dd.reshape((1,-1)),np.array([0])), shape=(siz,siz))
 
 def put_zero_row_in_csr(A, i):
+    """Set to zero all entries of row `i` in a CSR sparse matrix."""
+
     if type(A)==sparse.csr.csr_matrix:
         A.data[A.indptr[i]:A.indptr[i+1]] = 0
     else:
         raise ValueError("The type of the matrix is not csr to put to zero the row")
         
 def delete_row_in_coo(A, i):
+    """Delete row `i` from a COO sparse matrix and return a new COO matrix."""
+
     idx_row = A.row==i
     idx_higher_rows = A.row>i
 
