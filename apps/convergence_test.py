@@ -1,15 +1,14 @@
 import numpy as np
 from gfsupg.solver import CartesianGeometry, FiniteElement1D
 from gfsupg.solver import Scipy2DFEM, DeC, DeCSpaceTimeSUPGSolver
-from gfsupg.problem import LinearAcoustic2D
+from gfsupg.problem import *
 from gfsupg.plotting import *
 import pickle
 import csv
 
 import matplotlib.pyplot as plt
 
-problem = LinearAcoustic2D("moving_source")#"source_vortex_dirichlet")
-
+problem = MovingSourceTestCase() 
 
 
 stab ="SUPG"#"OSS" #"SUPG" #"OSS" #
@@ -20,7 +19,7 @@ save_solutions = False
 save_final_solution = True
 save_IC = True
 
-mesh_sizes_one = [20,40,80,160,320]#[10,20]# [20, 30, 40, 80]#, 160, 320]
+mesh_sizes_one = [10,20,40,80]#,160,320]#[10,20]# [20, 30, 40, 80]#, 160, 320]
 
 for order in range(2,8):
 

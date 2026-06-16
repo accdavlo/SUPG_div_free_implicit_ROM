@@ -1,4 +1,4 @@
-from .problem import LinearAcoustic2D
+from .problem_old import LinearAcoustic2D
 from .solver import Scipy2DFEM
 import matplotlib.pyplot as plt
 import numpy as np

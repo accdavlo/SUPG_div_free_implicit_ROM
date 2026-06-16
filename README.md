@@ -1,7 +1,7 @@
 # GFSUPG
 This repository implements the global-flux (GF) streamline-upwind Petrov-Galerkin (SUPG) method for Finite Element methods for the solution of the linear acoustic equations in 2D, as described in the paper [Structure preserving nodal continuous Finite Elements via Global Flux quadrature](https://arxiv.org/abs/2407.10579). 
 It allows to preserve truly multi-dimensional moving equilibria as vortices. 
-The code is written in python and uses numba for the assembly of the matrices.
+The code is written in python and uses scipy for the assembly of the matrices.
 
 The code will be used in the context of the coding week [SunHype2026](https://elenagaburro.it/sunhype2026.html) to extend it in the implicit setting and for Model Order Reduction (MOR) applications.
 
@@ -25,6 +25,13 @@ Then, if you want to use jupyter notebooks, you need to run also
 ```bash
 python -m ipykernel install --user --name=gfsupg --display-name "Python (gfsupg)"
 ```
+
+The solver is in [gfsupg/solver.py](gfsupg/solver.py) and the problem definition is in [gfsupg/problem.py](gfsupg/problem.py) including all the test cases.
+Some auxiliary functions are in [gfsupg/plotting.py](gfsupg/plotting.py) and some quadrature utilities are in [gfsupg/quadr.py](gfsupg/quadr.py).
+
+To start, the main script to run is [apps/test_SUPG.py](apps/test_SUPG.py) where you can select the test case to run and the SUPG and the GF-SUPG codes and compare them.
+
+There are several other scripts in the `apps` folder to test various aspects of the method: convergence tests, perturbation tests, testing the kernels of the methods, plot scripts, testing the operators on analytical div-free solutions, etc.
 
 ## Code notation vs paper notation
 Symbols and definitions in 1D, omitting the cell $\mathcal{C}_{ij}$ indexes, using $k$ for the row index and $\tilde{k}$ for column index and $x$ as geometrical variable or nodes rescaled in $[0,1]$ (similarly $y$ can be used)

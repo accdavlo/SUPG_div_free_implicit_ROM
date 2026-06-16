@@ -1,7 +1,7 @@
 import numpy as np
 from gfsupg.solver import CartesianGeometry, FiniteElement1D
 from gfsupg.solver import Scipy2DFEM, DeC, DeCSpaceTimeSUPGSolver
-from gfsupg.problem import LinearAcoustic2D
+from gfsupg.problem_old import LinearAcoustic2D
 from gfsupg.plotting import *
 import csv
 

@@ -1,13 +1,13 @@
 import numpy as np
 from gfsupg.solver import CartesianGeometry, FiniteElement1D
 from gfsupg.solver import Scipy2DFEM, DeC, DeCSpaceTimeSUPGSolver
-from gfsupg.problem import LinearAcoustic2D
+from gfsupg.problem import *
 from gfsupg.plotting import *
 import csv
 
 import matplotlib.pyplot as plt
 
-problem = LinearAcoustic2D("SG")
+problem = StommelGyreTestCase()
 GFs = [True]#, False]
 GF_names = ["GF"]#, "noGF"]
 
@@ -108,6 +108,8 @@ for GF_divergence in [False,True]:
             experimental_order = np.mean(orders_div_ic[istab,0,1:])
             guess_order = np.ceil(np.mean(orders_div_ic[istab,0,1:]))
 
+
+            # Error including boundary nodes
             plt.figure()
             iGF = 0
             GF = True
@@ -128,6 +130,8 @@ for GF_divergence in [False,True]:
             experimental_order = np.mean(orders_div_ic_nbr[istab,0,1:])
             guess_order = np.ceil(np.mean(orders_div_ic_nbr[istab,0,1:]))
 
+
+            # Error excluding boundary nodes
             plt.figure()
             iGF = 0
             GF = True

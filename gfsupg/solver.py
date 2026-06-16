@@ -11,7 +11,7 @@ import scipy.sparse as sparse
 from scipy.optimize import LinearConstraint, minimize
 
 from .quadr import lagrange_basis, lagrange_basis_deriv, nodes_weights
-from .problem import LinearAcoustic2D
+from .problem_old import LinearAcoustic2D
 
 
 class CartesianGeometry:
@@ -74,7 +74,7 @@ class FiniteElement1D:
                              "deriv_i_tilde","mass_int",\
                              "deriv_j_bar")
 
-        self.matrix    = {}#typed.Dict.empty(*mat_st)
+        self.matrix    = {}
         for matrix_name in self.matrix_names:
             self.matrix[matrix_name] = np.zeros((self.N_dof, self.N_dof))
 
@@ -129,8 +129,8 @@ class FiniteElement1D:
         """
         self.stencil_cells_length = 3
 
-        self.stencil_long = {}#typed.Dict.empty(*ste_st)
-        self.stencil      = {}#typed.Dict.empty(*mat_st)
+        self.stencil_long = {}
+        self.stencil      = {}
         for matrix_name in self.matrix_names:
             self.stencil_long[matrix_name] = np.zeros((self.degree, self.stencil_cells_length, self.degree))
             self.stencil[matrix_name] = np.zeros((self.degree, self.stencil_cells_length*self.degree))
@@ -872,7 +872,7 @@ class Scipy2DFEM:
 
 
         if problem.source is not None:
-            source_p = self.evaluate_function(lambda x,y: self.problem.source["p"](x,y,0.))
+            source_p = self.evaluate_function(lambda x,y: problem.source["p"](x,y,0.))
 
         # Solve I^y u(x_m) l = int y_0^y_l u^ex(x_m,y) dy
 
@@ -982,9 +982,18 @@ class Scipy2DFEM:
                     j_cell_global = j_cell*self.FEM1Dx.degree      
                     j1_cell_global = (j_cell+1)*self.FEM1Dx.degree
 
-                    dx = self.geom.xx[0][j_cell+1]-self.geom.xx[0][j_cell]
-                    Ixv[ j_cell_global+1:j1_cell_global+1, l ] =Ixv[ j_cell_global,l]+\
-                        dx*self.FEM1Dx.matrix["int_mat"][1:,:]@ source_u[ j_cell_global:j1_cell_global+1, l]
+                    if self.geom.BC[0] == 0 and (j_cell==self.geom.N_elem_dir[0]-1):  # periodic
+                        if self.FEM1Dx.degree>1:
+                            dx = self.geom.xR[0]-self.geom.xx[0][j_cell]
+                            Ixv[ j_cell_global+1:j1_cell_global, l ] =Ixv[ j_cell_global,l]+\
+                                dx*self.FEM1Dx.matrix["int_mat"][1:-1,:]@ \
+                                np.concatenate([source_u[ j_cell_global:j1_cell_global, l], [source_u[0,l]] ])
+                    else:
+                        dx = self.geom.xx[0][j_cell+1]-self.geom.xx[0][j_cell]
+                        Ixv[ j_cell_global+1:j1_cell_global+1, l ] =Ixv[ j_cell_global,l]+\
+                            dx*self.FEM1Dx.matrix["int_mat"][1:,:]@ source_u[ j_cell_global:j1_cell_global+1, l]
+                    
+
                 
 
             # Computing I^y S_v
@@ -994,9 +1003,16 @@ class Scipy2DFEM:
                     j_cell_global = j_cell*self.FEM1Dy.degree      
                     j1_cell_global = (j_cell+1)*self.FEM1Dy.degree
 
-                    dy = self.geom.xx[1][j_cell+1]-self.geom.xx[1][j_cell]
-                    Iyu[ l, j_cell_global+1:j1_cell_global+1 ] =Iyu[ l,j_cell_global]+\
-                        dy*self.FEM1Dy.matrix["int_mat"][1:,:]@ source_v[ l, j_cell_global:j1_cell_global+1]
+                    if self.geom.BC[1] == 0 and (j_cell==self.geom.N_elem_dir[1]-1):  # periodic in y
+                        if self.FEM1Dy.degree>1:
+                            dy = self.geom.xR[1]-self.geom.xx[1][j_cell]
+                            Iyu[ l, j_cell_global+1:j1_cell_global ] =Iyu[ l,j_cell_global]+\
+                                dy*self.FEM1Dy.matrix["int_mat"][1:-1,:]@ \
+                                np.concatenate( [source_v[ l, j_cell_global:j1_cell_global], [source_v[l,0]] ] )
+                    else:
+                        dy = self.geom.xx[1][j_cell+1]-self.geom.xx[1][j_cell]
+                        Iyu[ l, j_cell_global+1:j1_cell_global+1 ] =Iyu[ l,j_cell_global]+\
+                            dy*self.FEM1Dy.matrix["int_mat"][1:,:]@ source_v[ l, j_cell_global:j1_cell_global+1]
                 
 
             # optimize a 
@@ -1200,7 +1216,7 @@ class DeCSpaceTimeSUPGSolver:
         if hasattr(self.problem,"perturbation") and hasattr(self.problem,"steady_state_test"):
             if "num" in self.problem.name:
                 # Load numerical solution at the steady state
-                base_folder="LinAc2D_"+self.problem.steady_state_test
+                base_folder=self.problem.steady_state_test.self.folderName
                 order = self.FEM2D.FEM1Dx.degree+1
                 N     = self.FEM2D.geom.N_elem_dir[0]
                 if self.GF:
@@ -1225,7 +1241,7 @@ class DeCSpaceTimeSUPGSolver:
                                         self.problem.perturbation[var])
             elif "opt" in self.problem.name:
                 # Compute the equilibrium
-                problem_base = LinearAcoustic2D(self.problem.steady_state_test) 
+                problem_base = self.problem.steady_state_test 
                 ic_vect_guess = dict()
                 for var in self.problem.vars:
                     ic_vect_guess[var] = self.FEM2D.evaluate_function(\
@@ -1241,7 +1257,7 @@ class DeCSpaceTimeSUPGSolver:
     
             elif "int" in self.problem.name:
                 # Compute the equilibrium
-                problem_base = LinearAcoustic2D(self.problem.steady_state_test) 
+                problem_base = self.problem.steady_state_test
                 ic_vect_guess = dict()
                 for var in self.problem.vars:
                     ic_vect_guess[var] = self.FEM2D.evaluate_function(\

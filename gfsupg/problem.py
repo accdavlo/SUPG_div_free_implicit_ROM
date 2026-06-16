@@ -2,699 +2,556 @@ import numpy as np
 from numpy import sin, cos, pi, sqrt
 import os
 
+# --- Base Classes ---
+
 class ConservationLaw:
     """To be defined"""
     def __init__(self, name):
         self.name = name
 
-class LinearAcoustic2D(ConservationLaw):
-    def __init__(self, name, pert_coeff = None):
-        self.name  = name
-        self.dim   = 2
-        self.n_eq  = 3
-        self.vars  = ("u", "v", "p")
-        self.c     = 1.
-        self.equations = "acoustics"
-        self.coriolis             = 0.
-        self.coriolis_non_uniform = None
-        self.source               = None
-        self.p_source             = None
-        self.friction             = 0.
 
-        self.define_parameters()
-        self.define_geom()
+class LinearAcoustic2D(ConservationLaw):
+    """
+    Base structural class for 2D Linear Acoustic equations.
+    Handles shared boilerplate attributes and scheduling actions.
+    """
+    def __init__(self, name, pert_coeff=None, T_fin=1.0):
+        super().__init__(name)
+        self.dim = 2
+        self.n_eq = 3
+        self.vars = ("u", "v", "p")
+        self.c = 1.0
+        self.equations = "acoustics"
+        self.coriolis               = 0.0
+        self.coriolis_non_uniform   = None
+        self.source                 = None
+        self.p_source               = None
+        self.friction               = 0.0
         
         self.pert_coeff = pert_coeff
+        self.T_fin = T_fin
+
+        # Configuration pipeline executed dynamically by child test states
+        self.define_parameters()
+        self.define_geom()
         self.IC()
         self.dirichlet_BC()
 
         try:
             self.generate_exact()
-        except:
+        except Exception:
             pass
 
-
-        self.folderName="LinAc2D_"+self.name
-        os.system('mkdir "'+self.folderName+'"')      
+        self.folderName = f"LinAc2D_{self.name}"
+        os.makedirs(self.folderName, exist_ok=True)      
 
     def max_dt(self, q_all, dx):
-        """ to be improved! this is slow!!"""
-        dt_max = np.min(dx) / np.abs(self.c) 
-        return dt_max
+        """Calculates maximum time-step constraint."""
+        return np.min(dx) / abs(self.c)
 
     def define_parameters(self):
-        if self.name in ["vortex","smooth_vortex","smaller_smooth_vortex","source_vortex","source_vortex_dirichlet"]:
-            self.T_fin = 1.
-        elif self.name in ["vortex_long","smooth_vortex_long","smaller_smooth_vortex_long",\
-                           "source_vortex_long","source_vortex_long_dirichlet"]:
-            self.T_fin = 100.
-        elif self.name in ["vortex_num_perturbation", \
-                           "vortex_an_perturbation",\
-                           "vortex_opt_perturbation",\
-                           "vortex_int_perturbation",\
-                           "smooth_vortex_num_perturbation", \
-                           "smooth_vortex_an_perturbation", \
-                           "smooth_vortex_opt_perturbation", \
-                           "smooth_vortex_int_perturbation",\
-                           "smaller_smooth_vortex_num_perturbation", \
-                           "smaller_smooth_vortex_an_perturbation", \
-                           "smaller_smooth_vortex_opt_perturbation", \
-                           "smaller_smooth_vortex_int_perturbation",\
-                           "source_vortex_num_perturbation", \
-                           "source_vortex_an_perturbation", \
-                           "source_vortex_opt_perturbation", \
-                           "source_vortex_int_perturbation"] :
-            self.T_fin = 0.35
-            
-        elif "moving_source" in self.name:
-            self.T_fin = 0.1
-            self.background_speed = np.array([-0.1,0.1])
-        elif "oblique" in self.name:
-            self.T_fin = 1.
-        elif self.name == "coriolis_vortex":
-            self.T_fin = 1.
-            self.coriolis = 0.2
-        elif self.name == "coriolis_vortex_long":
-            self.T_fin = 100.
-            self.coriolis = 0.2
-        elif self.name in ["coriolis_vortex_opt_perturbation",\
-                           "coriolis_vortex_int_perturbation",\
-                           "coriolis_vortex_an_perturbation",\
-                           "coriolis_vortex_num_perturbation"]:
-            self.T_fin = 0.35
-            self.coriolis = 0.2
-        elif self.name == "RP4":
-            self.T_fin = 0.4
-            self.coriolis = 0.
-        elif self.name in ["SG","SG_long", "SG1", "SG_num_perturbation","SG_opt_perturbation"]:
-            if self.name in ["SG","SG_long", "SG_num_perturbation","SG_opt_perturbation"]:
-                self.b_SG     = 1.0  # end of y domain
-                self.lambda_SG= 1.0  # end of x domain
-                self.T_fin    = 1.0
-                self.coriolis = 0.
-                self.cor_f_0      = 0.01
-                self.cor_phi_0    = 0.01
-                self.friction = 0.01
-                self.wind_F   = 0.1
-                self.D_SG     = 1.0
-                if self.name=="SG_long":
-                    self.T_fin = 100.0
-                elif self.name in ["SG_num_perturbation","SG_opt_perturbation"]:
-                    self.T_fin = 0.35 
-            elif self.name == "SG1":
-                self.b_SG     = 10.0e9  # end of y domain
-                self.lambda_SG= 2.*np.pi*10**8  # end of x domain
-                self.D_SG     = 20000.
-                self.T_fin    = 4.e4
-                self.coriolis = 0.
-                self.cor_f_0  = 1e-13
-                self.cor_phi_0= 0.0
-                self.friction = 0.02
-                self.wind_F   = 1.0
-                raise ValueError("SG1 not fully implemented! ")
-
-
-            self.coriolis_non_uniform = lambda x,y, t=0: self.cor_f_0*y+self.cor_phi_0 
-            self.source     = dict()
-            self.source["u"]= lambda x,y, t=0: - self.wind_F * np.cos(np.pi*y/self.b_SG)
-            self.source["v"]= lambda x,y, t=0: 0.
-            self.source["p"]= lambda x,y, t=0: 0.          
-            
-
-            self.alpha_SG = self.D_SG*self.cor_f_0/self.friction
-            self.gamma_SG = self.wind_F*np.pi/self.friction/self.b_SG
-
-            discr = np.sqrt(self.alpha_SG**2/4.+(np.pi/self.b_SG)**2)
-
-            self.A_SG     = -self.alpha_SG/2. + discr
-            self.B_SG     = -self.alpha_SG/2. - discr
-            self.k_SG     = (1.-np.exp(self.B_SG*self.lambda_SG))/\
-                  (np.exp(self.A_SG*self.lambda_SG)-np.exp(self.B_SG*self.lambda_SG))
-            self.q_SG     = 1.-self.k_SG
-
-        elif self.name in ["constant_flow_an_perturbation", "constant_flow"]:
-            self.T_fin = 0.35
-        if "source" in self.name:
-            self.x0=0.5
-            self.y0=0.5
-            self.p_source = True
-
-
-            self.coefficient_source = 0.01
-            self.scale_source = 100.
-            self.x0_source = 0.65
-            self.y0_source = 0.39
-
-            g      = lambda x,y, t=0: gaussian(x-self.x0_source, y-self.y0_source, a=self.scale_source)
-
-            self.source = dict()
-            self.source["u"] = lambda x,y, t=0: 0.
-            self.source["v"] = lambda x,y, t=0: 0.
-            self.source["p"] = lambda x,y, t=0: (((x-self.x0_source)**2+(y-self.y0_source)**2)*\
-                self.scale_source -1)*4*self.scale_source*self.coefficient_source*g(x,y) 
-
-        if self.name == "moving_source":
-            self.coefficient_source = 1e-3
-            self.x_moving = lambda x,t : x-self.x0_source -self.background_speed[0]*t
-            self.y_moving = lambda y,t : y-self.y0_source -self.background_speed[1]*t 
-            self.gaussian_func  = lambda x,y, t: gaussian(self.x_moving(x,t), self.y_moving(y,t), a=self.scale_source)
-            self.grad_g = lambda x,y,t: grad_gaussian(self.x_moving(x,t), self.y_moving(y,t), a=self.scale_source)
-            self.hess_g = lambda x,y,t: hess_gaussian(self.x_moving(x,t), self.y_moving(y,t), a=self.scale_source)
-            self.laplace_g = lambda x,y,t: laplace_gaussian(self.x_moving(x,t), self.y_moving(y,t), a=self.scale_source)
-            
-            self.source["p"] = lambda x,y,t : \
-                self.coefficient_source*(-self.background_speed.T@self.hess_g(x,y,t) @self.background_speed \
-                                     + self.laplace_g(x,y,t) )
-
+        pass
 
     def define_geom(self):
-        if "vortex" in self.name or self.name == "RP4" and "smaller" not in self.name:# and "coriolis" not in self.name:
-            self.geometry_name = "square"
-            self.xL = np.array([0.,0.], dtype=np.float64)
-            self.xR = np.array([1.,1.], dtype=np.float64)
-            self.BC = np.array([1,1,1,1], dtype=np.int32) # non periodic
-            if "source_vortex" in self.name:
-                self.BC = np.array([1,1,1,2], dtype=np.int32) # not all dirichlet
-        elif self.name=="moving_source":
-            self.geometry_name = "square"
-            self.xL = np.array([0.,0.], dtype=np.float64)
-            self.xR = np.array([1.,1.], dtype=np.float64)
-            self.BC = np.array([1,1,1,1], dtype=np.int32) # non periodic
-
-
-        elif "oblique" in self.name \
-            or "constant_flow" in self.name\
-            or "smaller" in self.name:# or "coriolis_vortex" in self.name:
-            self.geometry_name = "periodic_square"
-            self.xL = np.array([0.,0.], dtype=np.float64)
-            self.xR = np.array([1.,1.], dtype=np.float64)
-            self.BC = np.array([0,0,0,0], dtype=np.int32) # periodic
-        elif self.name in ["SG","SG_long","SG1","SG_num_perturbation","SG_opt_perturbation"]:
-            if self.b_SG == 1.0 and self.lambda_SG == 1.0:
-                self.geometry_name = "square"
-            else:
-                self.geometry_name = "square_SG"
-            self.xL = np.array([0.,0.], dtype=np.float64)
-            self.xR = np.array([self.lambda_SG, self.b_SG], dtype=np.float64)
-            self.BC = np.array([1,1,1,1], dtype=np.int32) # non periodic
-        
-        
-        self.geometry_folder = "Geometry_"+self.geometry_name+"/"
-        os.system("mkdir %s"%self.geometry_folder)
+        pass
 
     def dirichlet_BC(self):
-
-        if self.name in ["source_vortex_dirichlet","source_vortex_long_dirichlet", "source_vortex_opt_perturbation", \
-                         "SG","SG1","SG_long","SG_num_perturbation","SG_opt_perturbation","smooth_vortex_opt_perturbation","coriolis_vortex_long","moving_source"]:
-                        #,\
-                        # "constant_flow_an_perturbation", "constant_flow"]:
-            # At all boundaries I'm imposing dirichlet BC for all vars
-            self.dirichlet = dict()
-            self.dirichlet["all"] = self.vars
-        else:
-            self.dirichlet = None
+        self.dirichlet = None
             
     def IC(self):
-        """
-        Returns a dictionary of lambda functions of the ICs
-        """
-        if self.name in ["vortex", "vortex_long"]:
-            x0=0.5;y0=0.5
+        self.ics = {}
+        return self.ics
 
-            p0     = lambda x,y: 1.
-            u0     = lambda x,y: analytic_travelling_vortex_function(x, y, x0, y0)*(-y+y0)
-            v0     = lambda x,y: analytic_travelling_vortex_function(x, y, x0, y0)*( x-x0)
-            self.ics   = dict()
-            self.ics["u"] = u0
-            self.ics["v"] = v0
-            self.ics["p"] = p0
-            return self.ics
-        elif self.name in ["coriolis_vortex","coriolis_vortex_long"]:
-            x0=0.5;y0=0.5
+    def generate_exact(self):
+        self.exact = None
+        return self.exact
 
-            p0     = lambda x,y: 1.0 - self.coriolis*\
-                                 gaussian_vortex_pressure_function(x, y, x0, y0)
-            u0     = lambda x,y: gaussian_vortex_velocity_function(x, y, x0, y0)*(-y+y0)
-            v0     = lambda x,y: gaussian_vortex_velocity_function(x, y, x0, y0)*( x-x0)
-            self.ics   = dict()
-            self.ics["u"] = u0
-            self.ics["v"] = v0
-            self.ics["p"] = p0
-            return self.ics
-        elif self.name in ["smooth_vortex", "smooth_vortex_long"]:
-            x0=0.5;y0=0.5
-
-            p0     = lambda x,y: 1.
-            u0     = lambda x,y: smooth_vortex_function(x, y, x0, y0)*(-y+y0)
-            v0     = lambda x,y: smooth_vortex_function(x, y, x0, y0)*( x-x0)
-            self.ics   = dict()
-            self.ics["u"] = u0
-            self.ics["v"] = v0
-            self.ics["p"] = p0
-            return self.ics
-        elif self.name in ["smaller_smooth_vortex", "smaller_smooth_vortex_long"]:
-            x0=0.5;y0=0.5
-
-            p0     = lambda x,y: 1.
-            u0     = lambda x,y: smooth_vortex_function(2.*(x-x0), 2.*(y-y0), 0., 0.)*2.*(-y+y0)
-            v0     = lambda x,y: smooth_vortex_function(2.*(x-x0), 2.*(y-y0), 0., 0.)*2.*( x-x0)
-            self.ics   = dict()
-            self.ics["u"] = u0
-            self.ics["v"] = v0
-            self.ics["p"] = p0
-            return self.ics
-        elif self.name in ["source_vortex","source_vortex_dirichlet",\
-                           "source_vortex_long","source_vortex_long_dirichlet"]:
-            
-            g      = lambda x,y: gaussian(x-self.x0_source, y-self.y0_source, a=self.scale_source)
-
-            p0     = lambda x,y: 1.
-           
-            u0     = lambda x,y: smooth_vortex_function(x, y, self.x0, self.y0)*(-y+self.y0)\
-                - 2.*self.scale_source*self.coefficient_source*g(x,y)*(x-self.x0_source)
-            
-            v0     = lambda x,y: smooth_vortex_function(x, y, self.x0, self.y0)*( x-self.x0)\
-                - 2.*self.scale_source*self.coefficient_source*g(x,y)*(y-self.y0_source)
+    def _setup_geometry_folder(self):
+        self.geometry_folder = f"Geometry_{self.geometry_name}/"
+        os.makedirs(self.geometry_folder, exist_ok=True)
 
 
-            self.ics   = dict()
-            self.ics["u"] = u0
-            self.ics["v"] = v0
-            self.ics["p"] = p0
-            return self.ics
-        elif self.name in ["moving_source"]:
-            
-            p0     = lambda x,y : 1. + self.coefficient_source* self.background_speed.T@ self.grad_g(x,y,0.)
-           
-            u0     = lambda x,y: self.coefficient_source*self.grad_g(x,y,0.)[0]
-            #smooth_vortex_function(x, y, self.x0, self.y0)*(-y+self.y0)\
-            v0     = lambda x,y: self.coefficient_source*self.grad_g(x,y,0.)[1] 
-            #lambda x,y: smooth_vortex_function(x, y, self.x0, self.y0)*( x-self.x0)\
-             
+# --- Concrete Child Test Cases ---
 
-            self.ics   = dict()
-            self.ics["u"] = u0
-            self.ics["v"] = v0
-            self.ics["p"] = p0
-            return self.ics
-        elif self.name in ["vortex_num_perturbation", \
-                           "vortex_opt_perturbation", \
-                           "vortex_int_perturbation"]:
-            if self.pert_coeff is None:
-                self.pert_coeff = 1e-3
-            self.with_perturbation = True
-            self.base_test         = "vortex_long"
-            self.steady_state_test = "vortex_long"
+class VortexTestCase(LinearAcoustic2D):
+    def __init__(self, basis_name="vortex", pert_coeff=None, is_long=False, pert_type=None):
+        self.is_long = is_long
+        self.pert_type = pert_type  # Accepts: 'num', 'an', 'opt', 'int'
+        self.basis_name = basis_name
+        name = f"{basis_name}_{'long' if is_long else 'short'}" + (f"_{pert_type}_perturbation" if pert_type else "")
 
-            x0=0.4;y0=0.43
+        # Determine simulation duration based on parameter logic
+        T_fin = 100.0 if is_long else (0.35 if pert_type else 1.0)
+        super().__init__(name, pert_coeff, T_fin)
 
-            delta_p = lambda x,y: self.pert_coeff*pressure_perturbation_function(x, y, x0, y0)  # 0.
-            delta_u = lambda x,y: 0. #vortex_perturbation_function(x, y, x0, y0)*(-y+y0)
-            delta_v = lambda x,y: 0. #vortex_perturbation_function(x, y, x0, y0)*( x-x0)
-            self.perturbation      = dict()
-            self.perturbation["u"] = delta_u
-            self.perturbation["v"] = delta_v
-            self.perturbation["p"] = delta_p
-            return self.perturbation
-        elif self.name in ["vortex_an_perturbation"]:
-            x0=0.5;y0=0.5
+    def define_geom(self):
+        self.geometry_name = "square"
+        self.xL = np.array([0., 0.], dtype=np.float64)
+        self.xR = np.array([1., 1.], dtype=np.float64)
+        self.BC = np.array([1, 1, 1, 1], dtype=np.int32)
+        self._setup_geometry_folder()
 
-            p0     = lambda x,y: 1.
-            u0     = lambda x,y: analytic_travelling_vortex_function(x, y, x0, y0)*(-y+y0)
-            v0     = lambda x,y: analytic_travelling_vortex_function(x, y, x0, y0)*( x-x0)
+    def IC(self):
+        x0, y0 = 0.5, 0.5
+        p0 = lambda x, y: 1.0
+        u0 = lambda x, y: analytic_travelling_vortex_function(x, y, x0, y0) * (-y + y0)
+        v0 = lambda x, y: analytic_travelling_vortex_function(x, y, x0, y0) * (x - x0)
+        
+        self.ics = {"u": u0, "v": v0, "p": p0}
 
+        if self.pert_type:
             self.with_perturbation = True
             self.base_test = "vortex_long"
 
-            x0=0.4;y0=0.43
+            if self.pert_type != "an":
+                self.steady_state_test = type(self)(is_long=True)
 
-            delta_p = lambda x,y: 0.
-            delta_u = lambda x,y: vortex_perturbation_function(x, y, x0, y0)*(-y+y0)
-            delta_v = lambda x,y: vortex_perturbation_function(x, y, x0, y0)*( x-x0)
-            self.perturbation      = dict()
-            self.perturbation["u"] = delta_u
-            self.perturbation["v"] = delta_v
-            self.perturbation["p"] = delta_p
-
-            self.ics   = dict()
-            self.ics["u"] = lambda x,y: u0(x,y)+delta_u(x,y)
-            self.ics["v"] = lambda x,y: v0(x,y)+delta_v(x,y)
-            self.ics["p"] = lambda x,y: p0(x,y)+delta_p(x,y)
-            return self.ics
+            x0_p, y0_p = 0.4, 0.43
+            delta_p = lambda x, y: self.pert_coeff * pressure_perturbation_function(x, y, x0_p, y0_p) if self.pert_type != "an" else 0.0
+            delta_u = lambda x, y: vortex_perturbation_function(x, y, x0_p, y0_p) * (-y + y0_p) if self.pert_type == "an" else 0.0
+            delta_v = lambda x, y: vortex_perturbation_function(x, y, x0_p, y0_p) * (x - x0_p) if self.pert_type == "an" else 0.0
             
-
-        elif self.name in ["smooth_vortex_num_perturbation",\
-                           "smooth_vortex_opt_perturbation",\
-                           "smooth_vortex_int_perturbation"]:
-            if self.pert_coeff is None:
-                self.pert_coeff = 1e-3
-            self.with_perturbation = True
-            self.base_test         = "smooth_vortex_long"
-            self.steady_state_test = "smooth_vortex_long"
-
-            x0=0.4;y0=0.43
-
-            delta_p = lambda x,y: self.pert_coeff*pressure_perturbation_function(x, y, x0, y0)#0.
-            delta_u = lambda x,y: 0.# vortex_perturbation_function(x, y, x0, y0)*(-y+y0)
-            delta_v = lambda x,y: 0.# vortex_perturbation_function(x, y, x0, y0)*( x-x0)
-            self.perturbation      = dict()
-            self.perturbation["u"] = delta_u
-            self.perturbation["v"] = delta_v
-            self.perturbation["p"] = delta_p
-            return self.perturbation
-        elif self.name in ["smooth_vortex_an_perturbation"]:
-            if self.pert_coeff is None:
-                self.pert_coeff = 1e-3
-            x0=0.5;y0=0.5
-
-            p0     = lambda x,y: 1.
-            u0     = lambda x,y: smooth_vortex_function(x, y, x0, y0)*(-y+y0)
-            v0     = lambda x,y: smooth_vortex_function(x, y, x0, y0)*( x-x0)
-
-            self.with_perturbation = True
-            self.base_test = "smooth_vortex_long"
-
-            x0_pert=0.4;y0_pert=0.43
-
-            delta_p = lambda x,y: self.pert_coeff*pressure_perturbation_function(x, y, x0_pert, y0_pert)
-            delta_u = lambda x,y: 0. #vortex_perturbation_function(x, y, x0, y0)*(-y+y0)
-            delta_v = lambda x,y: 0. #vortex_perturbation_function(x, y, x0, y0)*( x-x0)
-            self.perturbation      = dict()
-            self.perturbation["u"] = delta_u
-            self.perturbation["v"] = delta_v
-            self.perturbation["p"] = delta_p
-
-            self.ics   = dict()
-            self.ics["u"] = lambda x,y: u0(x,y)+delta_u(x,y)
-            self.ics["v"] = lambda x,y: v0(x,y)+delta_v(x,y)
-            self.ics["p"] = lambda x,y: p0(x,y)+delta_p(x,y)
-            return self.ics
-        elif self.name in ["smaller_smooth_vortex_num_perturbation",\
-                           "smaller_smooth_vortex_opt_perturbation",\
-                           "smaller_smooth_vortex_int_perturbation"]:
-            if self.pert_coeff is None:
-                self.pert_coeff = 1e-3
-            self.with_perturbation = True
-            self.base_test         = "smaller_smooth_vortex_long"
-            self.steady_state_test = "smaller_smooth_vortex_long"
-
-            x0=0.4;y0=0.43
-
-            delta_p = lambda x,y: 0.#self.pert_coeff*pressure_perturbation_function(x, y, x0, y0)#0.
-            delta_u = lambda x,y: self.pert_coeff*pressure_perturbation_function(x, y, x0, y0)
-            delta_v = lambda x,y: 0.# vortex_perturbation_function(x, y, x0, y0)*( x-x0)
-            self.perturbation      = dict()
-            self.perturbation["u"] = delta_u
-            self.perturbation["v"] = delta_v
-            self.perturbation["p"] = delta_p
-            return self.perturbation
-        elif self.name in ["smaller_smooth_vortex_an_perturbation"]:
-            if self.pert_coeff is None:
-                self.pert_coeff = 1e-3
-            x0=0.5;y0=0.5
-
-            p0     = lambda x,y: 1.
-            u0     = lambda x,y: smooth_vortex_function(2.*(x-x0), 2.*(y-y0), 0., 0.)*2.*(-y+y0)
-            v0     = lambda x,y: smooth_vortex_function(2.*(x-x0), 2.*(y-y0), 0., 0.)*2.*( x-x0)
+            self.perturbation = {"u": delta_u, "v": delta_v, "p": delta_p}
             
-            self.with_perturbation = True
-            self.base_test = "smaller_smooth_vortex_long"
-
-            x0_pert=0.4;y0_pert=0.43
-
-            delta_p = lambda x,y: self.pert_coeff*pressure_perturbation_function(x, y, x0_pert, y0_pert)
-            delta_u = lambda x,y: 0. #vortex_perturbation_function(x, y, x0, y0)*(-y+y0)
-            delta_v = lambda x,y: 0. #vortex_perturbation_function(x, y, x0, y0)*( x-x0)
-            self.perturbation      = dict()
-            self.perturbation["u"] = delta_u
-            self.perturbation["v"] = delta_v
-            self.perturbation["p"] = delta_p
-
-            self.ics   = dict()
-            self.ics["u"] = lambda x,y: u0(x,y)+delta_u(x,y)
-            self.ics["v"] = lambda x,y: v0(x,y)+delta_v(x,y)
-            self.ics["p"] = lambda x,y: p0(x,y)+delta_p(x,y)
-            return self.ics
-        elif self.name in ["coriolis_vortex_opt_perturbation", \
-                           "coriolis_vortex_int_perturbation"\
-                           "coriolis_vortex_num_perturbation"]:
-            if self.pert_coeff is None:
-                self.pert_coeff = 1e-3
-            self.with_perturbation = True
-            self.base_test         = "coriolis_vortex_long"
-            self.steady_state_test = "coriolis_vortex_long"
-
-            x0=0.4;y0=0.43
-
-            delta_p = lambda x,y: self.pert_coeff*pressure_perturbation_function(x, y, x0, y0)  # 0.
-            delta_u = lambda x,y: 0. #vortex_perturbation_function(x, y, x0, y0)*(-y+y0)
-            delta_v = lambda x,y: 0. #vortex_perturbation_function(x, y, x0, y0)*( x-x0)
-            self.perturbation      = dict()
-            self.perturbation["u"] = delta_u
-            self.perturbation["v"] = delta_v
-            self.perturbation["p"] = delta_p
-            return self.perturbation      
-        elif self.name in ["coriolis_vortex_an_perturbation"]:
-            if self.pert_coeff is None:
-                self.pert_coeff = 1e-3
-            x0=0.5;y0=0.5
-
-            p0     = lambda x,y: 1.0 - self.coriolis*\
-                                 gaussian_vortex_pressure_function(x, y, x0, y0)
-            u0     = lambda x,y: gaussian_vortex_velocity_function(x, y, x0, y0)*(-y+y0)
-            v0     = lambda x,y: gaussian_vortex_velocity_function(x, y, x0, y0)*( x-x0)
-
-            self.with_perturbation = True
-            self.base_test = "coriolis_vortex_long"
-
-            x0_pert=0.4;y0_pert=0.43
-
-            delta_p = lambda x,y: self.pert_coeff*pressure_perturbation_function(x, y, x0_pert, y0_pert)
-            delta_u = lambda x,y: 0. #vortex_perturbation_function(x, y, x0, y0)*(-y+y0)
-            delta_v = lambda x,y: 0. #vortex_perturbation_function(x, y, x0, y0)*( x-x0)
-            self.perturbation      = dict()
-            self.perturbation["u"] = delta_u
-            self.perturbation["v"] = delta_v
-            self.perturbation["p"] = delta_p
-
-            self.ics   = dict()
-            self.ics["u"] = lambda x,y: u0(x,y)+delta_u(x,y)
-            self.ics["v"] = lambda x,y: v0(x,y)+delta_v(x,y)
-            self.ics["p"] = lambda x,y: p0(x,y)+delta_p(x,y)
-            return self.ics
-
-        elif self.name in ["source_vortex_num_perturbation",\
-                           "source_vortex_opt_perturbation",\
-                           "source_vortex_int_perturbation"]:
-            if self.pert_coeff is None:
-                self.pert_coeff = 1e-3
-
-            self.with_perturbation = True
-            self.base_test         = "source_vortex_long"
-            self.steady_state_test = "source_vortex_long"
-
-            x0=0.4;y0=0.43
-
-            delta_p = lambda x,y: self.pert_coeff*pressure_perturbation_function(x, y, x0, y0)#0.
-            delta_u = lambda x,y: 0.# vortex_perturbation_function(x, y, x0, y0)*(-y+y0)
-            delta_v = lambda x,y: 0.# vortex_perturbation_function(x, y, x0, y0)*( x-x0)
-            self.perturbation      = dict()
-            self.perturbation["u"] = delta_u
-            self.perturbation["v"] = delta_v
-            self.perturbation["p"] = delta_p
+            if self.pert_type == "an":
+                self.ics["u"] = lambda x, y: u0(x, y) + delta_u(x, y)
+                self.ics["v"] = lambda x, y: v0(x, y) + delta_v(x, y)
+                self.ics["p"] = lambda x, y: p0(x, y) + delta_p(x, y)
+                return self.ics
             return self.perturbation
-        elif self.name in ["source_vortex_an_perturbation"]:
-            if self.pert_coeff is None:
-                self.pert_coeff = 1e-3
-
-            g      = lambda x,y: gaussian(x-self.x0_source, y-self.y0_source, a=self.scale_source)
-
-            p0     = lambda x,y: 1.
-           
-            u0     = lambda x,y: smooth_vortex_function(x, y, self.x0, self.y0)*(-y+self.y0)\
-                - 2.*self.scale_source*self.coefficient_source*g(x,y)*(x-self.x0_source)
-            
-            v0     = lambda x,y: smooth_vortex_function(x, y, self.x0, self.y0)*( x-self.x0)\
-                - 2.*self.scale_source*self.coefficient_source*g(x,y)*(y-self.y0_source)
-
-
-
-            self.with_perturbation = True
-            self.base_test = "source_vortex_long"
-
-            x0_pert=0.4;y0_pert=0.43
-
-            delta_p = lambda x,y: self.pert_coeff*pressure_perturbation_function(x, y, x0_pert, y0_pert)
-            delta_u = lambda x,y: 0. #vortex_perturbation_function(x, y, x0, y0)*(-y+y0)
-            delta_v = lambda x,y: 0. #vortex_perturbation_function(x, y, x0, y0)*( x-x0)
-            self.perturbation      = dict()
-            self.perturbation["u"] = delta_u
-            self.perturbation["v"] = delta_v
-            self.perturbation["p"] = delta_p
-
-            self.ics   = dict()
-            self.ics["u"] = lambda x,y: u0(x,y)+delta_u(x,y)
-            self.ics["v"] = lambda x,y: v0(x,y)+delta_v(x,y)
-            self.ics["p"] = lambda x,y: p0(x,y)+delta_p(x,y)
-            return self.ics
-
-
-
-        elif "oblique" in self.name:
-            self.theta = pi/4.
-            self.lamb  = 1./4.
-            xi = lambda x,y : x*cos(self.theta)+y*sin(self.theta)
-            coef = 2.*pi/self.lamb /cos(self.theta)
-            self.ics   = dict()
-            self.ics["u"] = lambda x,y: 0.
-            self.ics["v"] = lambda x,y: 0.
-            self.ics["p"] = lambda x,y: cos(coef*xi(x,y) )
-            return self.ics
-        elif self.name == "RP4":
-            self.ics   = dict()
-            self.ics["u"] = lambda x,y: 1.0*(x>0.5)*(y>0.5)
-            self.ics["v"] = lambda x,y: 0.0
-            self.ics["p"] = lambda x,y: 0.0
-            return self.ics
-        elif self.name in ["SG","SG_long", "SG1"]:
-            self.ics   = dict()
-            self.ics["u"] = lambda x,y: SG_u(x,y, self.b_SG, self.gamma_SG, self.k_SG, self.q_SG, self.A_SG, self.B_SG)
-            self.ics["v"] = lambda x,y: SG_v(x,y, self.b_SG, self.gamma_SG, self.k_SG, self.q_SG, self.A_SG, self.B_SG)
-            self.ics["p"] = lambda x,y: SG_p(x,y, self.b_SG, self.gamma_SG, self.k_SG, self.q_SG, self.A_SG, self.B_SG, self.wind_F, self.cor_phi_0, self.cor_f_0)
-            return self.ics
-        elif self.name in ["SG_num_perturbation","SG_opt_perturbation"]:
-            if self.pert_coeff is None:
-                self.pert_coeff = 1e-3
-            self.with_perturbation = True
-            self.base_test         = "SG_long"
-            self.steady_state_test = "SG_long"
-
-            x0=0.4;y0=0.43
-
-            delta_p = lambda x,y: self.pert_coeff*pressure_perturbation_function(x, y, x0, y0)#0.
-            delta_u = lambda x,y: 0.# vortex_perturbation_function(x, y, x0, y0)*(-y+y0)
-            delta_v = lambda x,y: 0.# vortex_perturbation_function(x, y, x0, y0)*( x-x0)
-            self.perturbation      = dict()
-            self.perturbation["u"] = delta_u
-            self.perturbation["v"] = delta_v
-            self.perturbation["p"] = delta_p
-            return self.perturbation
-        elif self.name == "constant_flow":
-            self.ics   = dict()
-            self.ics["u"] = lambda x,y: 0.
-            self.ics["v"] = lambda x,y: 0.
-            self.ics["p"] = lambda x,y: 1.0
-            return self.ics
-
-        elif self.name == "constant_flow_an_perturbation":
-            if self.pert_coeff is None:
-                self.pert_coeff = 1e-3
-            self.with_perturbation = True
-            self.base_test         = "constant_flow"
-
-            x0=0.4;y0=0.43
-
-            delta_p = lambda x,y: self.pert_coeff*pressure_perturbation_function(x, y, x0, y0)#(abs(x-x0)<0.05)*(abs(y-y0)<0.05)  # 0.
-            delta_u = lambda x,y: 0. #vortex_perturbation_function(x, y, x0, y0)*(-y+y0)
-            delta_v = lambda x,y: 0. #vortex_perturbation_function(x, y, x0, y0)*( x-x0)
-            self.perturbation      = dict()
-            self.perturbation["u"] = delta_u
-            self.perturbation["v"] = delta_v
-            self.perturbation["p"] = delta_p
-
-            self.ics   = dict()
-            self.ics["u"] = lambda x,y: 0.0
-            self.ics["v"] = lambda x,y: 0.0
-            self.ics["p"] = lambda x,y: 1.0+delta_p(x,y)
-            return self.ics
-
+        return self.ics
 
     def generate_exact(self):
-        if self.name in ["vortex", "vortex_long"]:
-            x0=0.5;y0=0.5
-
-            p0     = lambda x,y,t: 1.
-            u0     = lambda x,y,t: analytic_travelling_vortex_function(x, y, x0, y0)*(-y+y0)
-            v0     = lambda x,y,t: analytic_travelling_vortex_function(x, y, x0, y0)*( x-x0)
-            self.exact   = dict()
-            self.exact["u"] = u0
-            self.exact["v"] = v0
-            self.exact["p"] = p0
-            return self.exact
-        elif self.name in ["coriolis_vortex","coriolis_vortex_long"]:
-            x0=0.5;y0=0.5
-
-            p0     = lambda x,y,t: 1.0 - self.coriolis*\
-                                 gaussian_vortex_pressure_function(x, y, x0, y0)
-            u0     = lambda x,y,t: gaussian_vortex_velocity_function(x, y, x0, y0)*(-y+y0)
-            v0     = lambda x,y,t: gaussian_vortex_velocity_function(x, y, x0, y0)*( x-x0)
-            self.exact   = dict()
-            self.exact["u"] = u0
-            self.exact["v"] = v0
-            self.exact["p"] = p0
-            return self.exact
-        elif self.name in ["smooth_vortex", "smooth_vortex_long"]:
-            x0=0.5;y0=0.5
-
-            p0     = lambda x,y,t: 1.
-            u0     = lambda x,y,t: smooth_vortex_function(x, y, x0, y0)*(-y+y0)
-            v0     = lambda x,y,t: smooth_vortex_function(x, y, x0, y0)*( x-x0)
-            self.exact   = dict()
-            self.exact["u"] = u0
-            self.exact["v"] = v0
-            self.exact["p"] = p0
-            return self.exact
-        
-        elif self.name in ["smaller_smooth_vortex", "smaller_smooth_vortex_long"]:
-            x0=0.5;y0=0.5
-
-            p0     = lambda x,y,t: 1.
-            u0     = lambda x,y: smooth_vortex_function(2.*(x-x0), 2.*(y-y0), 0., 0.)*2.*(-y+y0)
-            v0     = lambda x,y: smooth_vortex_function(2.*(x-x0), 2.*(y-y0), 0., 0.)*2.*( x-x0)
-            self.exact   = dict()
-            self.exact["u"] = u0
-            self.exact["v"] = v0
-            self.exact["p"] = p0
-            return self.exact
-        
-        elif self.name in ["source_vortex","source_vortex_dirichlet",\
-                           "source_vortex_long","source_vortex_long_dirichlet"]:
-            
-            self.exact   = dict()
-            self.exact["u"] = lambda x,y,t: self.ics["u"](x,y)
-            self.exact["v"] = lambda x,y,t: self.ics["v"](x,y)
-            self.exact["p"] = lambda x,y,t: self.ics["p"](x,y)
-            return self.exact
-
-        elif self.name in ["moving_source"]:
-            self.exact   = dict()
-            self.exact["u"] = lambda x,y,t: self.ics["u"](x-self.background_speed[0]*t,y-self.background_speed[1]*t)
-            self.exact["v"] = lambda x,y,t: self.ics["v"](x-self.background_speed[0]*t,y-self.background_speed[1]*t)
-            self.exact["p"] = lambda x,y,t: self.ics["p"](x-self.background_speed[0]*t,y-self.background_speed[1]*t)
-            return self.exact
+        x0, y0 = 0.5, 0.5
+        self.exact = {
+            "u": lambda x, y, t: analytic_travelling_vortex_function(x, y, x0, y0) * (-y + y0),
+            "v": lambda x, y, t: analytic_travelling_vortex_function(x, y, x0, y0) * (x - x0),
+            "p": lambda x, y, t: 1.0
+        }
+        return self.exact
 
 
-        elif "oblique" in self.name:
-            self.theta = pi/4.
-            self.lamb  = 1./4.
-            xi = lambda x,y : x*cos(self.theta)+y*sin(self.theta)
-            xip = lambda x,y,t : xi(x,y) + self.c *t
-            xim = lambda x,y,t : xi(x,y) - self.c *t
-            coef = 2.*pi/self.lamb /cos(self.theta)
-            self.exact   = dict()
-            self.exact["u"] = lambda x,y,t: -0.5/self.c*( cos(coef*xip(x,y,t) )-cos(coef*xim(x,y,t) )  )*cos(self.theta)
-            self.exact["v"] = lambda x,y,t: -0.5/self.c*( cos(coef*xip(x,y,t) )-cos(coef*xim(x,y,t) )  )*sin(self.theta)
-            self.exact["p"] = lambda x,y,t: 0.5*( cos(coef*xip(x,y,t) )+cos(coef*xim(x,y,t) )  )
-            return self.exact
-        elif self.name in ["SG","SG_long", "SG1"]:
-            self.exact   = dict()
-            self.exact["u"] = lambda x,y,t: SG_u(x,y, self.b_SG, self.gamma_SG, self.k_SG, self.q_SG, self.A_SG, self.B_SG)
-            self.exact["v"] = lambda x,y,t: SG_v(x,y, self.b_SG, self.gamma_SG, self.k_SG, self.q_SG, self.A_SG, self.B_SG)
-            self.exact["p"] = lambda x,y,t: SG_p(x,y, self.b_SG, self.gamma_SG, self.k_SG, self.q_SG, self.A_SG, self.B_SG, self.wind_F, self.cor_phi_0, self.cor_f_0)
-            return self.exact
+class CoriolisVortexTestCase(LinearAcoustic2D):
+    def __init__(self, basis_name="coriolis_vortex", pert_coeff=None, is_long=False, pert_type=None):
+        self.is_long = is_long
+        self.pert_type = pert_type
+        self.basis_name = basis_name
+        name = f"{basis_name}_{'long' if is_long else 'short'}" + (f"_{pert_type}_perturbation" if pert_type else "")
+
+        T_fin = 100.0 if is_long else (0.35 if pert_type else 1.0)
+        super().__init__(name, pert_coeff, T_fin)
+        self.coriolis = 0.2
+
+    def define_geom(self):
+        self.geometry_name = "square"
+        self.xL = np.array([0., 0.], dtype=np.float64)
+        self.xR = np.array([1., 1.], dtype=np.float64)
+        self.BC = np.array([1, 1, 1, 1], dtype=np.int32)
+        self._setup_geometry_folder()
+
+    def dirichlet_BC(self):
+        # Specific boundary overriding rules
+        if self.is_long:
+            self.dirichlet = {"all": self.vars}
         else:
-            self.exact = None
-            return self.exact 
+            self.dirichlet = None
+
+    def IC(self):
+        x0, y0 = 0.5, 0.5
+        p0 = lambda x, y: 1.0 - self.coriolis * gaussian_vortex_pressure_function(x, y, x0, y0)
+        u0 = lambda x, y: gaussian_vortex_velocity_function(x, y, x0, y0) * (-y + y0)
+        v0 = lambda x, y: gaussian_vortex_velocity_function(x, y, x0, y0) * (x - x0)
+        
+        self.ics = {"u": u0, "v": v0, "p": p0}
+
+        if self.pert_type:
+            self.with_perturbation = True
+            self.base_test = "coriolis_vortex_long"
+            if self.pert_type != "an":
+                self.steady_state_test = type(self)(is_long=True)
+
+            x0_p, y0_p = 0.4, 0.43
+            delta_p = lambda x, y: self.pert_coeff * pressure_perturbation_function(x, y, x0_p, y0_p)
+            self.perturbation = {"u": lambda x, y: 0.0, "v": lambda x, y: 0.0, "p": delta_p}
+            
+            if self.pert_type == "an":
+                self.ics["p"] = lambda x, y: p0(x, y) + delta_p(x, y)
+                return self.ics
+            return self.perturbation
+        return self.ics
+
+    def generate_exact(self):
+        x0, y0 = 0.5, 0.5
+        self.exact = {
+            "u": lambda x, y, t: gaussian_vortex_velocity_function(x, y, x0, y0) * (-y + y0),
+            "v": lambda x, y, t: gaussian_vortex_velocity_function(x, y, x0, y0) * (x - x0),
+            "p": lambda x, y, t: 1.0 - self.coriolis * gaussian_vortex_pressure_function(x, y, x0, y0)
+        }
+        return self.exact
+
+
+class SmoothVortexTestCase(LinearAcoustic2D):
+    def __init__(self, basis_name="smooth_vortex", pert_coeff=None, is_long=False, pert_type=None, is_smaller=False):
+        self.is_long = is_long
+        self.pert_type = pert_type
+        self.is_smaller = is_smaller
+        self.basis_name = basis_name
+        name = ("smaller_" if self.is_smaller else "") + f"{basis_name}_{'long' if is_long else 'short'}" + (f"_{pert_type}_perturbation" if pert_type else "")
+
+
+        T_fin = 100.0 if is_long else (0.35 if pert_type else 1.0)
+        super().__init__(name, pert_coeff, T_fin)
+
+    def define_geom(self):
+        if self.is_smaller:
+            self.geometry_name = "periodic_square"
+            self.BC = np.array([0, 0, 0, 0], dtype=np.int32)
+        else:
+            self.geometry_name = "square"
+            self.BC = np.array([1, 1, 1, 1], dtype=np.int32)
+        self.xL = np.array([0., 0.], dtype=np.float64)
+        self.xR = np.array([1., 1.], dtype=np.float64)
+        self._setup_geometry_folder()
+
+    def dirichlet_BC(self):
+        if self.pert_type == "opt":
+            self.dirichlet = {"all": self.vars}
+        else:
+            self.dirichlet = None
+
+    def IC(self):
+        x0, y0 = 0.5, 0.5
+        p0 = lambda x, y: 1.0
+        
+        if self.is_smaller:
+            u0 = lambda x, y: smooth_vortex_function(2.*(x-x0), 2.*(y-y0), 0., 0.) * 2. * (-y + y0)
+            v0 = lambda x, y: smooth_vortex_function(2.*(x-x0), 2.*(y-y0), 0., 0.) * 2. * (x - x0)
+            base_str = "smaller_smooth_vortex_long"
+        else:
+            u0 = lambda x, y: smooth_vortex_function(x, y, x0, y0) * (-y + y0)
+            v0 = lambda x, y: smooth_vortex_function(x, y, x0, y0) * (x - x0)
+            base_str = "smooth_vortex_long"
+            
+        self.ics = {"u": u0, "v": v0, "p": p0}
+
+        if self.pert_type:
+            self.with_perturbation = True
+            self.base_test = base_str
+
+            if self.pert_type != "an":
+                self.steady_state_test = type(self)(is_long=True)
+
+            x0_p, y0_p = 0.4, 0.43
+            if self.is_smaller and self.pert_type != "an":
+                delta_u = lambda x, y: self.pert_coeff * pressure_perturbation_function(x, y, x0_p, y0_p)
+                delta_p = lambda x, y: 0.0
+            else:
+                delta_u = lambda x, y: 0.0
+                delta_p = lambda x, y: self.pert_coeff * pressure_perturbation_function(x, y, x0_p, y0_p)
+                
+            delta_v = lambda x, y: 0.0
+            self.perturbation = {"u": delta_u, "v": delta_v, "p": delta_p}
+            
+            if self.pert_type == "an":
+                # Re-evaluate an perturbations
+                d_p = lambda x, y: self.pert_coeff * pressure_perturbation_function(x, y, x0_p, y0_p)
+                self.ics["u"] = lambda x, y: u0(x, y)
+                self.ics["v"] = lambda x, y: v0(x, y)
+                self.ics["p"] = lambda x, y: p0(x, y) + d_p(x, y)
+                return self.ics
+            return self.perturbation
+        return self.ics
+
+    def generate_exact(self):
+        x0, y0 = 0.5, 0.5
+        if self.is_smaller:
+            u0 = lambda x, y, t: smooth_vortex_function(2.*(x-x0), 2.*(y-y0), 0., 0.) * 2. * (-y + y0)
+            v0 = lambda x, y, t: smooth_vortex_function(2.*(x-x0), 2.*(y-y0), 0., 0.) * 2. * (x - x0)
+        else:
+            u0 = lambda x, y, t: smooth_vortex_function(x, y, x0, y0) * (-y + y0)
+            v0 = lambda x, y, t: smooth_vortex_function(x, y, x0, y0) * (x - x0)
+            
+        self.exact = {"u": u0, "v": v0, "p": lambda x, y, t: 1.0}
+        return self.exact
+
+
+class SourceVortexTestCase(LinearAcoustic2D):
+    def __init__(self, basis_name="source_vortex", pert_coeff=None, is_long=False, pert_type=None, is_dirichlet=False):
+        self.is_long = is_long
+        self.pert_type = pert_type
+        self.is_dirichlet = is_dirichlet
+        self.basis_name = basis_name
+        name = f"{basis_name}_{'long' if is_long else 'short'}" + (f"_{pert_type}_perturbation" if pert_type else "") + (f"_dirichlet" if is_dirichlet else "")
+
+        T_fin = 100.0 if is_long else (0.35 if pert_type else 1.0)
+        super().__init__(name, pert_coeff, T_fin)
+
+    def define_parameters(self):
+        self.x0, self.y0 = 0.5, 0.5
+        self.p_source = True
+        self.coefficient_source = 0.01
+        self.scale_source = 100.0
+        self.x0_source, self.y0_source = 0.65, 0.39
+
+        g = lambda x, y, t=0: gaussian(x - self.x0_source, y - self.y0_source, a=self.scale_source)
+        self.source = {
+            "u": lambda x, y, t=0: 0.0,
+            "v": lambda x, y, t=0: 0.0,
+            "p": lambda x, y, t=0: (((x - self.x0_source)**2 + (y - self.y0_source)**2) * self.scale_source - 1) * 4 * self.scale_source * self.coefficient_source * g(x, y)
+        }
+
+    def define_geom(self):
+        self.geometry_name = "square"
+        self.xL = np.array([0., 0.], dtype=np.float64)
+        self.xR = np.array([1., 1.], dtype=np.float64)
+        self.BC = np.array([1, 1, 1, 1 if (self.is_dirichlet or self.pert_type == "opt") else 2], dtype=np.int32)
+        self._setup_geometry_folder()
+
+    def dirichlet_BC(self):
+        if self.is_dirichlet or self.pert_type in ["opt", "long_dirichlet"]:
+            self.dirichlet = {"all": self.vars}
+        else:
+            self.dirichlet = None
+
+    def IC(self):
+        g = lambda x, y: gaussian(x - self.x0_source, y - self.y0_source, a=self.scale_source)
+        p0 = lambda x, y: 1.0
+        u0 = lambda x, y: smooth_vortex_function(x, y, self.x0, self.y0) * (-y + self.y0) - 2. * self.scale_source * self.coefficient_source * g(x, y) * (x - self.x0_source)
+        v0 = lambda x, y: smooth_vortex_function(x, y, self.x0, self.y0) * (x - self.x0) - 2. * self.scale_source * self.coefficient_source * g(x, y) * (y - self.y0_source)
+        
+        self.ics = {"u": u0, "v": v0, "p": p0}
+
+        if self.pert_type:
+            self.with_perturbation = True
+            self.base_test = "source_vortex_long"
+            if self.pert_type != "an":
+                self.steady_state_test = type(self)(is_long=True)
+
+            x0_p, y0_p = 0.4, 0.43
+            delta_p = lambda x, y: self.pert_coeff * pressure_perturbation_function(x, y, x0_p, y0_p)
+            self.perturbation = {"u": lambda x, y: 0.0, "v": lambda x, y: 0.0, "p": delta_p}
+            
+            if self.pert_type == "an":
+                self.ics["p"] = lambda x, y: p0(x, y) + delta_p(x, y)
+                return self.ics
+            return self.perturbation
+        return self.ics
+
+    def generate_exact(self):
+        self.exact = {
+            "u": lambda x, y, t: self.ics["u"](x, y),
+            "v": lambda x, y, t: self.ics["v"](x, y),
+            "p": lambda x, y, t: self.ics["p"](x, y)
+        }
+        return self.exact
+
+
+class MovingSourceTestCase(LinearAcoustic2D):
+    def __init__(self, name="moving_source", pert_coeff=None):
+        super().__init__(name, pert_coeff, T_fin=0.1)
+
+    def define_parameters(self):
+        self.background_speed = np.array([-0.1, 0.1])
+        self.x0_source, self.y0_source = 0.65, 0.39
+        self.scale_source = 100.0
+        self.coefficient_source = 1e-3
+        
+        self.x_moving = lambda x, t: x - self.x0_source - self.background_speed[0] * t
+        self.y_moving = lambda y, t: y - self.y0_source - self.background_speed[1] * t 
+        
+        self.grad_g = lambda x, y, t: grad_gaussian(self.x_moving(x, t), self.y_moving(y, t), a=self.scale_source)
+        self.hess_g = lambda x, y, t: hess_gaussian(self.x_moving(x, t), self.y_moving(y, t), a=self.scale_source)
+        self.laplace_g = lambda x, y, t: laplace_gaussian(self.x_moving(x, t), self.y_moving(y, t), a=self.scale_source)
+        
+        self.source = {
+            "u": lambda x, y, t=0: 0.0,
+            "v": lambda x, y, t=0: 0.0,
+            "p": lambda x, y, t: self.coefficient_source * (-self.background_speed.T @ self.hess_g(x, y, t) @ self.background_speed + self.laplace_g(x, y, t))
+        }
+
+    def define_geom(self):
+        self.geometry_name = "square"
+        self.xL = np.array([0., 0.], dtype=np.float64)
+        self.xR = np.array([1., 1.], dtype=np.float64)
+        self.BC = np.array([1, 1, 1, 1], dtype=np.int32)
+        self._setup_geometry_folder()
+
+    def dirichlet_BC(self):
+        self.dirichlet = {"all": self.vars}
+
+    def IC(self):
+        p0 = lambda x, y: 1.0 + self.coefficient_source * self.background_speed.T @ self.grad_g(x, y, 0.0)
+        u0 = lambda x, y: self.coefficient_source * self.grad_g(x, y, 0.0)[0]
+        v0 = lambda x, y: self.coefficient_source * self.grad_g(x, y, 0.0)[1]
+        self.ics = {"u": u0, "v": v0, "p": p0}
+        return self.ics
+
+    def generate_exact(self):
+        self.exact = {
+            "u": lambda x, y, t: self.ics["u"](x - self.background_speed[0] * t, y - self.background_speed[1] * t),
+            "v": lambda x, y, t: self.ics["v"](x - self.background_speed[0] * t, y - self.background_speed[1] * t),
+            "p": lambda x, y, t: self.ics["p"](x - self.background_speed[0] * t, y - self.background_speed[1] * t)
+        }
+        return self.exact
+
+
+class ObliqueTestCase(LinearAcoustic2D):
+    def __init__(self, name="oblique", pert_coeff=None):
+        super().__init__(name, pert_coeff, T_fin=1.0)
+
+    def define_geom(self):
+        self.geometry_name = "periodic_square"
+        self.xL = np.array([0., 0.], dtype=np.float64)
+        self.xR = np.array([1., 1.], dtype=np.float64)
+        self.BC = np.array([0, 0, 0, 0], dtype=np.int32)
+        self._setup_geometry_folder()
+
+    def IC(self):
+        self.theta = pi / 4.0
+        self.lamb = 1.0 / 4.0
+        xi = lambda x, y: x * cos(self.theta) + y * sin(self.theta)
+        coef = 2.0 * pi / self.lamb / cos(self.theta)
+        
+        self.ics = {"u": lambda x, y: 0.0, "v": lambda x, y: 0.0, "p": lambda x, y: cos(coef * xi(x, y))}
+        return self.ics
+
+    def generate_exact(self):
+        self.theta = pi / 4.0
+        self.lamb = 1.0 / 4.0
+        xi = lambda x, y: x * cos(self.theta) + y * sin(self.theta)
+        xip = lambda x, y, t: xi(x, y) + self.c * t
+        xim = lambda x, y, t: xi(x, y) - self.c * t
+        coef = 2.0 * pi / self.lamb / cos(self.theta)
+        
+        self.exact = {
+            "u": lambda x, y, t: -0.5 / self.c * (cos(coef * xip(x, y, t)) - cos(coef * xim(x, y, t))) * cos(self.theta),
+            "v": lambda x, y, t: -0.5 / self.c * (cos(coef * xip(x, y, t)) - cos(coef * xim(x, y, t))) * sin(self.theta),
+            "p": lambda x, y, t: 0.5 * (cos(coef * xip(x, y, t)) + cos(coef * xim(x, y, t)))
+        }
+        return self.exact
+
+
+class RP4TestCase(LinearAcoustic2D):
+    def __init__(self, name="RP4", pert_coeff=None):
+        super().__init__(name, pert_coeff, T_fin=0.4)
+
+    def define_geom(self):
+        self.geometry_name = "square"
+        self.xL = np.array([0., 0.], dtype=np.float64)
+        self.xR = np.array([1., 1.], dtype=np.float64)
+        self.BC = np.array([1, 1, 1, 1], dtype=np.int32)
+        self._setup_geometry_folder()
+
+    def IC(self):
+        self.ics = {
+            "u": lambda x, y: 1.0 * (x > 0.5) * (y > 0.5),
+            "v": lambda x, y: 0.0,
+            "p": lambda x, y: 0.0
+        }
+        return self.ics
+
+
+class StommelGyreTestCase(LinearAcoustic2D):
+    def __init__(self, base_name="SG", pert_coeff=None, is_long=False, pert_type=None):
+        self.is_long = is_long
+        self.pert_type = pert_type
+
+        name = f"{base_name}_{'long' if is_long else 'short'}" + (f"_{pert_type}_perturbation" if pert_type else "")
+        
+        T_fin = 100.0 if is_long else (0.35 if pert_type else 1.0)
+            
+        super().__init__(name, pert_coeff, T_fin)
+
+    def define_parameters(self):
+        self.b_SG = 1.0
+        self.lambda_SG = 1.0
+        self.cor_f_0 = 0.01
+        self.cor_phi_0 = 0.01
+        self.friction = 0.01
+        self.wind_F = 0.1
+        self.D_SG = 1.0
+
+        self.coriolis_non_uniform = lambda x, y, t=0: self.cor_f_0 * y + self.cor_phi_0 
+        self.source = {
+            "u": lambda x, y, t=0: -self.wind_F * np.cos(np.pi * y / self.b_SG),
+            "v": lambda x, y, t=0: 0.0,
+            "p": lambda x, y, t=0: 0.0
+        }
+
+        self.alpha_SG = self.D_SG * self.cor_f_0 / self.friction
+        self.gamma_SG = self.wind_F * np.pi / self.friction / self.b_SG
+        discr = np.sqrt(self.alpha_SG**2 / 4.0 + (np.pi / self.b_SG)**2)
+
+        self.A_SG = -self.alpha_SG / 2.0 + discr
+        self.B_SG = -self.alpha_SG / 2.0 - discr
+        self.k_SG = (1.0 - np.exp(self.B_SG * self.lambda_SG)) / (np.exp(self.A_SG * self.lambda_SG) - np.exp(self.B_SG * self.lambda_SG))
+        self.q_SG = 1.0 - self.k_SG
+
+    def define_geom(self):
+        self.geometry_name = "square" if (self.b_SG == 1.0 and self.lambda_SG == 1.0) else "square_SG"
+        self.xL = np.array([0., 0.], dtype=np.float64)
+        self.xR = np.array([self.lambda_SG, self.b_SG], dtype=np.float64)
+        self.BC = np.array([1, 1, 1, 1], dtype=np.int32)
+        self._setup_geometry_folder()
+
+    def dirichlet_BC(self):
+        self.dirichlet = {"all": self.vars}
+
+    def IC(self):
+        self.ics = {
+            "u": lambda x, y: SG_u(x, y, self.b_SG, self.gamma_SG, self.k_SG, self.q_SG, self.A_SG, self.B_SG),
+            "v": lambda x, y: SG_v(x, y, self.b_SG, self.gamma_SG, self.k_SG, self.q_SG, self.A_SG, self.B_SG),
+            "p": lambda x, y: SG_p(x, y, self.b_SG, self.gamma_SG, self.k_SG, self.q_SG, self.A_SG, self.B_SG, self.wind_F, self.cor_phi_0, self.cor_f_0)
+        }
+
+        if self.pert_type:
+            self.with_perturbation = True
+            self.base_test = "SG_long"
+
+            if self.pert_type != "an":
+                self.steady_state_test = type(self)(is_long=True)
+
+            x0_p, y0_p = 0.4, 0.43
+            delta_p = lambda x, y: self.pert_coeff * pressure_perturbation_function(x, y, x0_p, y0_p)
+            self.perturbation = {"u": lambda x, y: 0.0, "v": lambda x, y: 0.0, "p": delta_p}
+            return self.perturbation
+        return self.ics
+
+    def generate_exact(self):
+        self.exact = {
+            "u": lambda x, y, t: SG_u(x, y, self.b_SG, self.gamma_SG, self.k_SG, self.q_SG, self.A_SG, self.B_SG),
+            "v": lambda x, y, t: SG_v(x, y, self.b_SG, self.gamma_SG, self.k_SG, self.q_SG, self.A_SG, self.B_SG),
+            "p": lambda x, y, t: SG_p(x, y, self.b_SG, self.gamma_SG, self.k_SG, self.q_SG, self.A_SG, self.B_SG, self.wind_F, self.cor_phi_0, self.cor_f_0)
+        }
+        return self.exact
+
+
+class ConstantFlowTestCase(LinearAcoustic2D):
+    def __init__(self, name="constant_flow", pert_coeff=None, pert_type=None):
+        self.pert_type = pert_type
+        super().__init__(name, pert_coeff, T_fin=0.35)
+
+    def define_geom(self):
+        self.geometry_name = "periodic_square"
+        self.xL = np.array([0., 0.], dtype=np.float64)
+        self.xR = np.array([1., 1.], dtype=np.float64)
+        self.BC = np.array([0, 0, 0, 0], dtype=np.int32)
+        self._setup_geometry_folder()
+
+    def IC(self):
+        self.ics = {"u": lambda x, y: 0.0, "v": lambda x, y: 0.0, "p": lambda x, y: 1.0}
+
+        if self.pert_type == "an":
+            self.with_perturbation = True
+            self.base_test = "constant_flow"
+
+            x0_p, y0_p = 0.4, 0.43
+            delta_p = lambda x, y: self.pert_coeff * pressure_perturbation_function(x, y, x0_p, y0_p)
+            self.perturbation = {"u": lambda x, y: 0.0, "v": lambda x, y: 0.0, "p": delta_p}
+            self.ics["p"] = lambda x, y: 1.0 + delta_p(x, y)
+            return self.ics
+        return self.ics
+    
 
 
 
@@ -702,6 +559,7 @@ def lambda_vortex(r):
     lam = (20.*cos(r))/3. + (27.*cos(r)**2.)/16. + (4.*cos(r)**3)/9.+ cos(r)**4/16. + (20.*r*sin(r))/3. \
             + (35.*r**2)/16. + (27.*r*cos(r)*sin(r))/8. + (4.*r*cos(r)**2*sin(r))/3. + (r*cos(r)**3*sin(r))/4.
     return lam
+
 def analytic_travelling_vortex_function(x, y, x0, y0):
     r0 = 0.45; deltah = 0.1; w = pi/r0; g = 9.81
     Gam=(12.*pi*np.sqrt(deltah*g))/(np.sqrt(315.*pi**2. - 2048.))/r0   # vortex intensity parameter

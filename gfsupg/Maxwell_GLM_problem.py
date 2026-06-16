@@ -2,7 +2,7 @@ import numpy as np
 from numpy import sin, cos, pi, sqrt
 import os
 
-from .problem import ConservationLaw
+from .problem_old import ConservationLaw
 
 
 class Maxwell_GLM_2D(ConservationLaw):
@@ -110,7 +110,7 @@ class Maxwell_GLM_2D(ConservationLaw):
                 self.pert_coeff = 1e-3
             self.with_perturbation = True
             self.base_test         = "test1_long"
-            self.steady_state_test = "test1_long"
+            self.steady_state_test = type(self)(is_long=True)
 
             x0=0.4;y0=0.43
 
