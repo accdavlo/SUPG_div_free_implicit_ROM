@@ -1,8 +1,8 @@
 import numpy as np
 from gfsupg.solver import CartesianGeometry, FiniteElement1D, Scipy2DFEM
 from gfsupg.solver import DeC, DeCSpaceTimeSUPGSolver
-from gfsupg.problem_old import LinearAcoustic2D
 from gfsupg.plotting import *
+from gfsupg.problem import *
 
 import matplotlib.pyplot as plt
 
@@ -22,9 +22,8 @@ FEM1Dx = FiniteElement1D(order-1,"gaussLobatto","gaussLobatto")
 FEM1Dy = FiniteElement1D(order-1,"gaussLobatto","gaussLobatto")
 dec = DeC((order+1)//2,order,"gaussLobatto")
 
-problem_tags = ["vortex", "smooth_vortex"]
-for problem_tag in problem_tags:
-    problem = LinearAcoustic2D(problem_tag)
+problems = [VortexTestCase(), SmoothVortexTestCase()]
+for problem in problems:
 
     Ns = np.array([Nx,Ny], dtype=np.int32)
 

@@ -2,7 +2,6 @@ import numpy as np
 from numpy import sin, cos, pi, sqrt
 import os
 
-from .problem_old import ConservationLaw
 
 
 class Maxwell2D(ConservationLaw):

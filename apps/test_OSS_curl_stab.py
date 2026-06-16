@@ -1,8 +1,8 @@
 import numpy as np
 from gfsupg.solver import CartesianGeometry, FiniteElement1D, Scipy2DFEM
 from gfsupg.solver import DeC, DeCSpaceTimeSUPGSolver
-from gfsupg.problem_old import LinearAcoustic2D
 from gfsupg.plotting import *
+from gfsupg.problem import *
 
 import matplotlib.pyplot as plt
 
@@ -14,7 +14,7 @@ FEM1Dy = FiniteElement1D(order-1,"gaussLobatto","gaussLobatto")
 dec = DeC((order+1)//2,order,"gaussLobatto")
 # dec = DeC(4,5,"gaussLobatto")
 
-problem = LinearAcoustic2D("smooth_vortex_long")
+problem = SmoothVortexTestCase(is_long=True)
 problem.T_fin = 10
 Ns = np.array([20,20], dtype=np.int32)
 

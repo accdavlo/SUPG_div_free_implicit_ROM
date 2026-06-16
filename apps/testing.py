@@ -1,13 +1,13 @@
 import numpy as np
 from gfsupg.solver import CartesianGeometry, FiniteElement1D
 from gfsupg.solver import Scipy2DFEM, DeC, DeCSpaceTimeSUPGSolver
-from gfsupg.problem_old import LinearAcoustic2D
 from gfsupg.plotting import *
+from gfsupg.problem import *
 import csv
 
 import matplotlib.pyplot as plt
 
-problem = LinearAcoustic2D("source_vortex")
+problem = SourceVortexTestCase()
 
 order = 3
 FEM1Dx = FiniteElement1D(order-1,"gaussLobatto","gaussLobatto")

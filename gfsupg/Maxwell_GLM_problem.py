@@ -2,7 +2,7 @@ import numpy as np
 from numpy import sin, cos, pi, sqrt
 import os
 
-from .problem_old import ConservationLaw
+from .problem import ConservationLaw
 
 
 class Maxwell_GLM_2D(ConservationLaw):

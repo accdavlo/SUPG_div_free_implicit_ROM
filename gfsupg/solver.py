@@ -11,7 +11,6 @@ import scipy.sparse as sparse
 from scipy.optimize import LinearConstraint, minimize
 
 from .quadr import lagrange_basis, lagrange_basis_deriv, nodes_weights
-from .problem_old import LinearAcoustic2D
 
 
 class CartesianGeometry:

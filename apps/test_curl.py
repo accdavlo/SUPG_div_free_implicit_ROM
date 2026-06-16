@@ -1,9 +1,3 @@
-#!/usr/bin/env python
-# coding: utf-8
-
-# In[1]:
-
-
 import numpy as np
 from gfsupg.solver import CartesianGeometry, FiniteElement1D, Scipy2DFEM
 from gfsupg.solver import DeC, DeCSpaceTimeSUPGSolver
@@ -11,9 +5,6 @@ from gfsupg.problem import *
 from gfsupg.plotting import *
 
 import matplotlib.pyplot as plt
-
-
-# In[2]:
 
 
 #problem.T_fin = 1.
@@ -25,13 +16,7 @@ dec = DeC((order+1)//2,order,"gaussLobatto")
 # dec = DeC(4,5,"gaussLobatto")
 
 
-# In[3]:
-
-
 problem = SmoothVortexTestCase()#ConstantFlowTestCase(pert_coeff=1e-1, pert_type="an")
-
-
-# In[4]:
 
 
 # Ns = np.array([20,20], dtype=np.int32)
@@ -39,19 +24,16 @@ problem = SmoothVortexTestCase()#ConstantFlowTestCase(pert_coeff=1e-1, pert_type
 # geom = CartesianGeometry(problem.xL,problem.xR, Ns, problem.geometry_folder, BC=problem.BC)
 
 
-# # In[5]:
 
 
 # FEM2D = Scipy2DFEM(geom,FEM1Dx, FEM1Dy, folder=problem.folderName)
 
 
-# # In[6]:
 
 
 # solver = DeCSpaceTimeSUPGSolver(problem, FEM2D, dec, GF = True, stab = "SUPG", trick_second_der=False)
 
 
-# # In[7]:
 
 
 # labels = []
@@ -78,7 +60,6 @@ problem = SmoothVortexTestCase()#ConstantFlowTestCase(pert_coeff=1e-1, pert_type
 #                     stab="SUPG", trick_second_der=False, stab_coeff=0.)
 
 
-# # In[8]:
 
 
 # q_tmp = dict()
@@ -108,7 +89,6 @@ problem = SmoothVortexTestCase()#ConstantFlowTestCase(pert_coeff=1e-1, pert_type
 # plt.savefig(problem.folderName+"/curl_error_ord_%d_N_%04d.pdf"%(order,Ns[0]))
 
 
-# # In[9]:
 
 
 # labels = []
@@ -138,7 +118,6 @@ problem = SmoothVortexTestCase()#ConstantFlowTestCase(pert_coeff=1e-1, pert_type
 # alphas[labels[i]] = solver.stab_coeff
 
 
-# # In[10]:
 
 
 # styles = ["-","--", "-", "--","-.",":", "-.", ":",":"]
@@ -167,13 +146,11 @@ problem = SmoothVortexTestCase()#ConstantFlowTestCase(pert_coeff=1e-1, pert_type
 # plt.savefig(problem.folderName+"/curl_error_ord_%d_N_%04d.pdf"%(order,Ns[0]))
 
 
-# # In[11]:
 
 
 # from gfsupg.solver import SUPG_GF_stabilization,define_GF_residuals
 
 
-# # In[12]:
 
 
 # lab = "SUPG_GF"
@@ -202,7 +179,6 @@ problem = SmoothVortexTestCase()#ConstantFlowTestCase(pert_coeff=1e-1, pert_type
 # plot_one_sol(problem, FEM2D, res)
 
 
-# # In[13]:
 
 
 # lab = "SUPG_GF"
@@ -227,7 +203,6 @@ problem = SmoothVortexTestCase()#ConstantFlowTestCase(pert_coeff=1e-1, pert_type
 
 
 
-# # In[14]:
 
 
 # for stab_coeff in [0.,1e-4,1e-3]:
@@ -238,7 +213,6 @@ problem = SmoothVortexTestCase()#ConstantFlowTestCase(pert_coeff=1e-1, pert_type
 #       print("error ", err_OSS)
 
 
-# # In[15]:
 
 
 # fig,axs = plt.subplots(1,3,figsize=(15,4))
@@ -248,7 +222,6 @@ problem = SmoothVortexTestCase()#ConstantFlowTestCase(pert_coeff=1e-1, pert_type
 # fig.suptitle("Initial condition")
 
 
-# # In[16]:
 
 
 # fig,axs = plt.subplots(1,1,figsize=(5,4))
@@ -257,21 +230,18 @@ problem = SmoothVortexTestCase()#ConstantFlowTestCase(pert_coeff=1e-1, pert_type
 # fig.suptitle("Velocity squared initial condition")
 
 
-# # In[17]:
 
 
 # for it, t in enumerate(tt_save_OSS[1::4]):
 #     plot_all_sols(problem, FEM2D,q_save_OSS,it, t , 200)
 
 
-# # In[18]:
 
 
 # for it, t in enumerate(tt_save["SUPG"][1::4]):
 #     plot_all_sols(problem, FEM2D,q_save["SUPG"],it, t , 200)
 
 
-# # In[19]:
 
 
 # q_save, tt_save, comp_time, err, err_vertex  = solver.solve(with_error = True, with_error_vertex = True, GF=False)
@@ -279,7 +249,6 @@ problem = SmoothVortexTestCase()#ConstantFlowTestCase(pert_coeff=1e-1, pert_type
 #     = solver.solve(with_error = True, with_error_vertex = True, GF=True)
 
 
-# # In[20]:
 
 
 # for it, t in enumerate(tt_save[1::4]):
@@ -291,7 +260,6 @@ problem = SmoothVortexTestCase()#ConstantFlowTestCase(pert_coeff=1e-1, pert_type
 #     plt.show()
 
 
-# # In[21]:
 
 
 # u_ex = FEM2D.evaluate_function(lambda x,y: problem.exact["u"](x,y,0))
@@ -303,7 +271,6 @@ problem = SmoothVortexTestCase()#ConstantFlowTestCase(pert_coeff=1e-1, pert_type
 # plot_sol(FEM2D, q_save_GF["v"][-1,:]-v_ex, axs[2], fig, levels=100)
 
 
-# # In[22]:
 
 
 # fig,axs = plt.subplots(1,3,figsize=(15,4))
@@ -316,14 +283,7 @@ problem = SmoothVortexTestCase()#ConstantFlowTestCase(pert_coeff=1e-1, pert_type
 
 # ## Solving perturbation
 
-# In[23]:
-
-
-problem = SmoothVortexTestCase(pert_coeff=1e-10, is_smaller= True, pert_type = "opt") #LinearAcoustic2D("smaller_smooth_vortex_opt_perturbation",pert_coeff=1e-10)
-
-
-# In[24]:
-
+problem = SmoothVortexTestCase(pert_coeff=1e-10, is_smaller= True, pert_type = "opt") 
 
 Ns = np.array([40,40], dtype=np.int32)
 

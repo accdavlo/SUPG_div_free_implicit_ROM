@@ -1,15 +1,15 @@
 import numpy as np
 from gfsupg.solver import CartesianGeometry, FiniteElement1D, Scipy2DFEM
 from gfsupg.solver import DeC, DeCSpaceTimeSUPGSolver
-from gfsupg.problem_old import LinearAcoustic2D
 from gfsupg.plotting import *
+from gfsupg.problem import *
 
 import matplotlib.pyplot as plt
 
 stab = "SUPG"
 
 for pert_val in [1e-3, 1e-2]: #0. #1e-6, 1e-1, 
-    problem = LinearAcoustic2D("SG_opt_perturbation",pert_coeff=pert_val)
+    problem = StommelGyreTestCase(pert_coeff = pert_val, pert_type="opt")
 
 
     mesh_sizes_one = [20, 30, 40, 80]

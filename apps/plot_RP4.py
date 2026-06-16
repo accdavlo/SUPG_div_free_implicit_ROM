@@ -1,15 +1,14 @@
 import numpy as np
 from gfsupg.solver import CartesianGeometry, FiniteElement1D, Scipy2DFEM
 from gfsupg.solver import DeC, DeCSpaceTimeSUPGSolver
-from gfsupg.problem_old import LinearAcoustic2D
-from gfsupg.problem_old import exact_radial_RP4
 from gfsupg.plotting import *
+from gfsupg.problem import *
 import pickle
 import matplotlib.pyplot as plt
 import os
 
 
-problem = LinearAcoustic2D("RP4")
+problem = RP4TestCase()
 
 meshes = [100, 200, 50, 25]
 orders = [  2,   2,  3,  5]
