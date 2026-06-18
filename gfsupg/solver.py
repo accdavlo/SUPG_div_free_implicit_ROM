@@ -992,94 +992,95 @@ class Scipy2DFEM:
         """For coriolis systems, the pressure at equilibrium balances the coriolis source
         In particular \partial_x p  = c v and \partial_y p = -c u
         So p = \int^x c v dx + const(y) and p = -\int^y c u dy + const(x)
-        Choosing any average of the two makes it work"""
-            p0 = q_vec["p"][0]
-            a = 0.5
+        Choosing any average of the two makes it work
+        """
+        p0 = q_vec["p"][0]
+        a = 0.5
 
-            p_mat = self.vect_to_mat(q_vec["p"])
+        p_mat = self.vect_to_mat(q_vec["p"])
 
-            p_new = np.zeros(p_mat.shape)
-            Ixv   = np.zeros(p_mat.shape)
-            Iyu   = np.zeros(p_mat.shape)
+        p_new = np.zeros(p_mat.shape)
+        Ixv   = np.zeros(p_mat.shape)
+        Iyu   = np.zeros(p_mat.shape)
 
 
-            source = self.compute_sources(q_vec,problem)
+        source = self.compute_sources(q_vec,problem)
 
-            source_u = self.vect_to_mat(source["u"])
-            source_v = self.vect_to_mat(source["v"])
+        source_u = self.vect_to_mat(source["u"])
+        source_v = self.vect_to_mat(source["v"])
 
-            # Computing I^x S_u
-            for l, y in enumerate(self.xx_dofs[1]):
-            # Compute I^x S_u(y_l) m = int x_0^x_m S_u(x,y_l) dx
-                for j_cell in range(self.geom.N_elem_dir[0]):
-                    j_cell_global = j_cell*self.FEM1Dx.degree      
-                    j1_cell_global = (j_cell+1)*self.FEM1Dx.degree
+        # Computing I^x S_u
+        for l, y in enumerate(self.xx_dofs[1]):
+        # Compute I^x S_u(y_l) m = int x_0^x_m S_u(x,y_l) dx
+            for j_cell in range(self.geom.N_elem_dir[0]):
+                j_cell_global = j_cell*self.FEM1Dx.degree      
+                j1_cell_global = (j_cell+1)*self.FEM1Dx.degree
 
-                    if self.geom.BC[0] == 0 and (j_cell==self.geom.N_elem_dir[0]-1):  # periodic
-                        if self.FEM1Dx.degree>1:
-                            dx = self.geom.xR[0]-self.geom.xx[0][j_cell]
-                            Ixv[ j_cell_global+1:j1_cell_global, l ] =Ixv[ j_cell_global,l]+\
-                                dx*self.FEM1Dx.matrix["int_mat"][1:-1,:]@ \
-                                np.concatenate([source_u[ j_cell_global:j1_cell_global, l], [source_u[0,l]] ])
-                    else:
-                        dx = self.geom.xx[0][j_cell+1]-self.geom.xx[0][j_cell]
-                        Ixv[ j_cell_global+1:j1_cell_global+1, l ] =Ixv[ j_cell_global,l]+\
-                            dx*self.FEM1Dx.matrix["int_mat"][1:,:]@ source_u[ j_cell_global:j1_cell_global+1, l]
-                    
-
+                if self.geom.BC[0] == 0 and (j_cell==self.geom.N_elem_dir[0]-1):  # periodic
+                    if self.FEM1Dx.degree>1:
+                        dx = self.geom.xR[0]-self.geom.xx[0][j_cell]
+                        Ixv[ j_cell_global+1:j1_cell_global, l ] =Ixv[ j_cell_global,l]+\
+                            dx*self.FEM1Dx.matrix["int_mat"][1:-1,:]@ \
+                            np.concatenate([source_u[ j_cell_global:j1_cell_global, l], [source_u[0,l]] ])
+                else:
+                    dx = self.geom.xx[0][j_cell+1]-self.geom.xx[0][j_cell]
+                    Ixv[ j_cell_global+1:j1_cell_global+1, l ] =Ixv[ j_cell_global,l]+\
+                        dx*self.FEM1Dx.matrix["int_mat"][1:,:]@ source_u[ j_cell_global:j1_cell_global+1, l]
                 
 
-            # Computing I^y S_v
-            for l, x in enumerate(self.xx_dofs[0]):
-                # Compute I^y S_v(x_l) m = int y_0^y_m S_v(x_l,y) dy
-                for j_cell in range(self.geom.N_elem_dir[1]):
-                    j_cell_global = j_cell*self.FEM1Dy.degree      
-                    j1_cell_global = (j_cell+1)*self.FEM1Dy.degree
-
-                    if self.geom.BC[1] == 0 and (j_cell==self.geom.N_elem_dir[1]-1):  # periodic in y
-                        if self.FEM1Dy.degree>1:
-                            dy = self.geom.xR[1]-self.geom.xx[1][j_cell]
-                            Iyu[ l, j_cell_global+1:j1_cell_global ] =Iyu[ l,j_cell_global]+\
-                                dy*self.FEM1Dy.matrix["int_mat"][1:-1,:]@ \
-                                np.concatenate( [source_v[ l, j_cell_global:j1_cell_global], [source_v[l,0]] ] )
-                    else:
-                        dy = self.geom.xx[1][j_cell+1]-self.geom.xx[1][j_cell]
-                        Iyu[ l, j_cell_global+1:j1_cell_global+1 ] =Iyu[ l,j_cell_global]+\
-                            dy*self.FEM1Dy.matrix["int_mat"][1:,:]@ source_v[ l, j_cell_global:j1_cell_global+1]
-                
-
-            # optimize a 
-            # min_a || p0 + a Ixv+ (1-a) Iyu -p||^2=||a (Ixv-Iyu)+ p0 + Iyu -p||^2
-            #  2 (Ixv-Iyu) * [a(Ixv-Iyu) + p0+Iyu-p |=0
-            # a =  -(Ixv-Iyu)*(p0+Iyu-p)/ ((Ixv-Iyu)*(Ixv-Iyu))
-
-            # a = - np.sum((Ixv-Iyu)*(p0+Iyu-p_mat))/(np.sum((Ixv-Iyu)*(Ixv-Iyu)))
-            # p_new[:,:] = p0 + a*Ixv + (1-a)*Iyu
-            # p_new[:,:] = p0 + Ixv + Iyu
             
-            p_aux_y = np.zeros_like(Ixv)
-            for i in range(len(self.xx_dofs[0])):
-                p_aux_y[i,:] = p_mat[0,:]-p0-Ixv[0,:]
 
-            p_aux_x = np.zeros_like(Ixv)
-            for j in range(len(self.xx_dofs[1])):
-                p_aux_x[:,j] = p_mat[:,0]-p0-Iyu[:,0]
+        # Computing I^y S_v
+        for l, x in enumerate(self.xx_dofs[0]):
+            # Compute I^y S_v(x_l) m = int y_0^y_m S_v(x_l,y) dy
+            for j_cell in range(self.geom.N_elem_dir[1]):
+                j_cell_global = j_cell*self.FEM1Dy.degree      
+                j1_cell_global = (j_cell+1)*self.FEM1Dy.degree
 
-
-            # p_aux_y = np.zeros_like(Ixv)
-            # for i in range(len(self.xx_dofs[0])):
-            #     p_aux_y[i,:] = Iyu[0,:]-Ixv[0,:]
-
-            # p_aux_x = np.zeros_like(Ixv)
-            # for j in range(len(self.xx_dofs[1])):
-            #     p_aux_x[:,j] = Ixv[:,0]-Iyu[:,0]
-
-
-            p_new = p0 + a*(Ixv + p_aux_y)+(1-a)*(Iyu+p_aux_x)
-
-            p_vec = self.mat_to_vect(p_new)
+                if self.geom.BC[1] == 0 and (j_cell==self.geom.N_elem_dir[1]-1):  # periodic in y
+                    if self.FEM1Dy.degree>1:
+                        dy = self.geom.xR[1]-self.geom.xx[1][j_cell]
+                        Iyu[ l, j_cell_global+1:j1_cell_global ] =Iyu[ l,j_cell_global]+\
+                            dy*self.FEM1Dy.matrix["int_mat"][1:-1,:]@ \
+                            np.concatenate( [source_v[ l, j_cell_global:j1_cell_global], [source_v[l,0]] ] )
+                else:
+                    dy = self.geom.xx[1][j_cell+1]-self.geom.xx[1][j_cell]
+                    Iyu[ l, j_cell_global+1:j1_cell_global+1 ] =Iyu[ l,j_cell_global]+\
+                        dy*self.FEM1Dy.matrix["int_mat"][1:,:]@ source_v[ l, j_cell_global:j1_cell_global+1]
             
-            return p_vec
+
+        # optimize a 
+        # min_a || p0 + a Ixv+ (1-a) Iyu -p||^2=||a (Ixv-Iyu)+ p0 + Iyu -p||^2
+        #  2 (Ixv-Iyu) * [a(Ixv-Iyu) + p0+Iyu-p |=0
+        # a =  -(Ixv-Iyu)*(p0+Iyu-p)/ ((Ixv-Iyu)*(Ixv-Iyu))
+
+        # a = - np.sum((Ixv-Iyu)*(p0+Iyu-p_mat))/(np.sum((Ixv-Iyu)*(Ixv-Iyu)))
+        # p_new[:,:] = p0 + a*Ixv + (1-a)*Iyu
+        # p_new[:,:] = p0 + Ixv + Iyu
+        
+        p_aux_y = np.zeros_like(Ixv)
+        for i in range(len(self.xx_dofs[0])):
+            p_aux_y[i,:] = p_mat[0,:]-p0-Ixv[0,:]
+
+        p_aux_x = np.zeros_like(Ixv)
+        for j in range(len(self.xx_dofs[1])):
+            p_aux_x[:,j] = p_mat[:,0]-p0-Iyu[:,0]
+
+
+        # p_aux_y = np.zeros_like(Ixv)
+        # for i in range(len(self.xx_dofs[0])):
+        #     p_aux_y[i,:] = Iyu[0,:]-Ixv[0,:]
+
+        # p_aux_x = np.zeros_like(Ixv)
+        # for j in range(len(self.xx_dofs[1])):
+        #     p_aux_x[:,j] = Ixv[:,0]-Iyu[:,0]
+
+
+        p_new = p0 + a*(Ixv + p_aux_y)+(1-a)*(Iyu+p_aux_x)
+
+        p_vec = self.mat_to_vect(p_new)
+        
+        return p_vec
 
 
 def boundary_index_dir(ix, direction, geom, n_dof_dir):

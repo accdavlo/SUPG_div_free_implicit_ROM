@@ -33,6 +33,11 @@ To start, the main script to run is [apps/test_SUPG.py](apps/test_SUPG.py) where
 
 There are several other scripts in the `apps` folder to test various aspects of the method: convergence tests, perturbation tests, testing the kernels of the methods, plot scripts, testing the operators on analytical div-free solutions, etc.
 
+
+## Slides
+* [GF-SUPG slides](slides/torlo_gfsupg_sunhype.pdf)
+* [MOR slides](slides/MOR.pdf)
+
 ## Code notation vs paper notation
 Symbols and definitions in 1D, omitting the cell $\mathcal{C}_{ij}$ indexes, using $k$ for the row index and $\tilde{k}$ for column index and $x$ as geometrical variable or nodes rescaled in $[0,1]$ (similarly $y$ can be used)
 
