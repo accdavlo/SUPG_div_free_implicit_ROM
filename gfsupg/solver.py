@@ -1340,45 +1340,13 @@ class DeCSpaceTimeSUPGSolver:
     def set_Nt_max(self, Nt_max):
         self.Nt_max = Nt_max
 
-    def solve(self, stab_coeff = None, with_error = False, \
+    def solver_set_parameters(self, stab_coeff = None, with_error = False, \
               with_error_vertex = False, GF=None, CFL = None, \
-              save_sol = False, stab = None, trick_second_der = False, curl_stab_flag = False):
-        """Run a full transient simulation.
-
-        Parameters
-        ----------
-        stab_coeff:
-            Optional stabilization coefficient. If `None`, defaults are chosen
-            from polynomial degree and stabilization type.
-        with_error, with_error_vertex:
-            If enabled and an exact solution is available, compute errors 
-            varying in time averaging on all dofs or on vertex dofs.
-        GF:
-            Optional override for global-flux formulation flag.
-        CFL:
-            Optional override for time-step scaling.
-        save_sol:
-            If truthy, writes final state and diagnostics to a pickle file.
-        stab:
-            Optional override for stabilization method (`SUPG` or `OSS`).
-        trick_second_der:
-            If changed, uses other second-derivative-related operators.
-        curl_stab_flag:
-            Adds optional curl-based OSS stabilization for velocity components.
-
-        Returns
-        -------
-        q_save, tt_save, comp_time, error, error_vertex
-            Saved solution snapshots, saved times, wall time, and optional
-            error arrays.
-        """
-
+              stab = None, trick_second_der = False) :
         if CFL is not None:
             self.set_CFL(CFL)
         if GF is not None:
             self.GF = GF
-
-
 
         if with_error:
             error = np.zeros(len(self.problem.vars))
@@ -1436,6 +1404,46 @@ class DeCSpaceTimeSUPGSolver:
         if trick_second_der!=self.trick_second_der:
             self.trick_second_der = trick_second_der
             self.set_second_derivative_operators()
+
+        return error, error_vertex, method_name, error_name, get_residual, get_stabilization, curl_stabilization
+
+
+    def solve(self, stab_coeff = None, with_error = False, \
+              with_error_vertex = False, GF=None, CFL = None, \
+              save_sol = False, stab = None, trick_second_der = False, curl_stab_flag = False):
+        """Run a full transient simulation.
+
+        Parameters
+        ----------
+        stab_coeff:
+            Optional stabilization coefficient. If `None`, defaults are chosen
+            from polynomial degree and stabilization type.
+        with_error, with_error_vertex:
+            If enabled and an exact solution is available, compute errors 
+            varying in time averaging on all dofs or on vertex dofs.
+        GF:
+            Optional override for global-flux formulation flag.
+        CFL:
+            Optional override for time-step scaling.
+        save_sol:
+            If truthy, writes final state and diagnostics to a pickle file.
+        stab:
+            Optional override for stabilization method (`SUPG` or `OSS`).
+        trick_second_der:
+            If changed, uses other second-derivative-related operators.
+        curl_stab_flag:
+            Adds optional curl-based OSS stabilization for velocity components.
+
+        Returns
+        -------
+        q_save, tt_save, comp_time, error, error_vertex
+            Saved solution snapshots, saved times, wall time, and optional
+            error arrays.
+        """
+
+        error, error_vertex, method_name, error_name, get_residual, get_stabilization, curl_stabilization = \
+                self.solver_set_parameters(self, stab_coeff, with_error, with_error_vertex, \
+                                           GF, CFL, stab, trick_second_der)
         
 
         dt_save = self.problem.T_fin/(self.Nt_save-2)
@@ -1494,12 +1502,12 @@ class DeCSpaceTimeSUPGSolver:
         for ivar, var in enumerate(self.problem.vars):
             sub_sources[var] = np.zeros_like(q_now[var])
 
-
+        #MZ main loop  
         tic = time.time()
         while (t<self.problem.T_fin and it<self.Nt_max):
             # Set dt
             dt =  self.CFL* self.geom.dx_min#self.CFL * self.problem.max_dt(q, self.geom.dx)
-            c = self.problem.c
+            c = self.problem.c 
 
             # Initialize variables
             for ivar, var in enumerate(self.problem.vars):
@@ -1592,6 +1600,285 @@ class DeCSpaceTimeSUPGSolver:
         print("")
         return q_save, tt_save, comp_time, error, error_vertex
     
+class ImplicitEuler(DeCSpaceTimeSUPGSolver):
+    
+    def build_whole_q_vector(self, q:dict, vect_q:np.ndarray)->None:
+        """
+        Builds a whole vector stacking along dimension 0 the arrays in q.
+        """
+        curr_i = 0
+        for k in self.problem.vars:
+            size_q = q[k].shape[0]
+            vect_q[curr_i:curr_i+size_q-1, :] = q[k]
+            curr_i += size_q
+        
+
+    def split_whole_q_vector(self, q:dict, vect_q:np.ndarray):
+        """
+        Splits vect_q into dictionnary q.
+        It supposes that vect_q is just q stacked along dimension 0.
+        """
+        curr_i = 0
+        for k in self.problem.vars:
+            size_q = q[k].shape[0]
+            q[k] = vect_q[curr_i:curr_i+size_q-1, :]
+            curr_i += size_q
+
+
+    def build_whole_matrices(self,a,dx):
+        A_C=sparse.csr_matrix((self.FEM2D.n_dof_tot*3,self.FEM2D.n_dof_tot*3))
+        A_SU=sparse.csr_matrix((self.FEM2D.n_dof_tot*3,self.FEM2D.n_dof_tot*3))
+        Eps_CGFq=sparse.csr_matrix((self.FEM2D.n_dof_tot*3,self.FEM2D.n_dof_tot*3))
+        Eps_SUGFq=sparse.csr_matrix((self.FEM2D.n_dof_tot*3,self.FEM2D.n_dof_tot*3))
+        zero = sparse.csr_matrix((self.FEM2D.n_dof_tot,self.FEM2D.n_dof_tot))
+
+        A_C = vstack([hstack([self.FEM2D.operator["mass"], zero, zero]), hstack([zero, self.FEM2D.operator["mass"], zero]),hstack([zero, zero, self.FEM2D.operator["mass"]])])
+        A_SU = vstack([hstack([zero, zero, self.FEM2D.operator["DxI"]]), hstack([zero, zero, self.FEM2D.operator["DyI"]]),hstack([self.FEM2D.operator["DxI"], self.FEM2D.operator["DyI"], zero])])
+        Eps_CGFq = vstack([hstack([zero, zero, self.FEM2D.operator["IDx"]]), hstack([zero, zero, self.FEM2D.operator["IDx_tilde"]]),hstack([self.FEM2D.operator["IDx_tilde"], self.FEM2D.operator["IDy_tilde"], zero])])
+        Eps_SUGFq = a * dx * vstack([hstack([self.FEM2D.operator["DxDx_tilde"], self.FEM2D.operator["DxDy_tilde"], zero ]), hstack([self.FEM2D.operator["DxDx_tilde"], self.FEM2D.operator["DyDy_tilde"], zero ]),hstack([zero, zero, self.FEM2D.operator["DxDx_tilde"] + self.FEM2D.operator["DyDy_tilde"]])])
+
+        return A_C+A_SU, Eps_CGFq + Eps_SUGFq
+
+        
+        
+        
+
+
+
+    def solve(self, stab_coeff = None, with_error = False, \
+              with_error_vertex = False, GF=None, CFL = None, \
+              save_sol = False, stab = None, trick_second_der = False, curl_stab_flag = False):
+        """Run a full transient simulation.
+
+        Parameters
+        ----------
+        stab_coeff:
+            Optional stabilization coefficient. If `None`, defaults are chosen
+            from polynomial degree and stabilization type.
+        with_error, with_error_vertex:
+            If enabled and an exact solution is available, compute errors 
+            varying in time averaging on all dofs or on vertex dofs.
+        GF:
+            Optional override for global-flux formulation flag.
+        CFL:
+            Optional override for time-step scaling.
+        save_sol:
+            If truthy, writes final state and diagnostics to a pickle file.
+        stab:
+            Optional override for stabilization method (`SUPG` or `OSS`).
+        trick_second_der:
+            If changed, uses other second-derivative-related operators.
+        curl_stab_flag:
+            Adds optional curl-based OSS stabilization for velocity components.
+
+        Returns
+        -------
+        q_save, tt_save, comp_time, error, error_vertex
+            Saved solution snapshots, saved times, wall time, and optional
+            error arrays.
+        """
+
+        error, error_vertex, method_name, error_name, get_residual, get_stabilization, curl_stabilization = \
+                self.solver_set_parameters(self, stab_coeff, with_error, with_error_vertex, \
+                                           GF, CFL, stab, trick_second_der)
+
+        dt_save = self.problem.T_fin/(self.Nt_save-2)
+
+        q_save = dict() 
+
+        it = 0
+        t=0.
+        t_save  = 0.
+        it_save = 0
+        L2 = dict()
+        for var in self.problem.vars: # ("u", "v", "p")
+            L2[var] = np.zeros(self.FEM2D.n_dof_tot)
+            q_save[var] = np.zeros((self.Nt_save, self.FEM2D.n_dof_tot))
+        tt_save = np.zeros(self.Nt_save)
+
+        q_prev = dict()
+        q_now  = dict()
+        q      = np.zeros((len(self.problem.vars), self.FEM2D.n_dof_tot)) 
+        for var in self.problem.vars:
+            q_prev[var] = np.zeros((1, self.FEM2D.n_dof_tot))
+            q_now[var]  = np.zeros((1, self.FEM2D.n_dof_tot))
+            for i in range(1): #range(self.DeC.n_subNodes):
+                q_now[var][i,:] = self.ic_vect[var]
+
+        size_array = sum(np.array([q_prev[k].shape[0] for k in self.problem.vars]))            
+        vect_q = np.empty(size_array, q[0].shape[1])
+
+        for var in self.problem.vars:
+            q_save[var][it_save,:] = q_now[var][-1,:]
+        tt_save[it_save] = t
+
+        source = dict()
+        if self.problem.source is not None:
+            for var in self.problem.vars:
+                source[var] = self.FEM2D.evaluate_function(lambda x,y: self.problem.source[var](x,y,0.))
+        else:
+            for var in self.problem.vars:
+                source[var] = self.FEM2D.evaluate_function(lambda x,y: 0.)
+
+        if self.problem.coriolis_non_uniform is not None:
+            cor_nu = self.FEM2D.evaluate_function(self.problem.coriolis_non_uniform)
+        else:
+            cor_nu = self.FEM2D.evaluate_function(lambda x,y: 0.)
+
+        if self.problem.dirichlet is not None:
+            dirichlet_BC = dict()
+            for bc_item in self.problem.dirichlet.keys():
+                BC_values = dict()
+                idxs = self.FEM2D.dirichlet_indexes[bc_item]
+                for var in self.problem.dirichlet[bc_item]:
+                    BC_values[var] = self.ic_vect[var][idxs]
+                dirichlet_BC[bc_item] = Dirichlet_BC_set(idxs, BC_values)
+
+        else:
+            dirichlet_BC = None
+
+        sub_sources = dict()
+        for ivar, var in enumerate(self.problem.vars):
+            sub_sources[var] = np.zeros_like(q_now[var])
+
+
+        tic = time.time()
+
+        #Define big matrices
+        A, B = self.build_whole_matrices(al, dx_min)
+
+        while (t<self.problem.T_fin and it<self.Nt_max):
+            # Set dt
+            dt =  self.CFL* self.geom.dx_min#self.CFL * self.problem.max_dt(q, self.geom.dx)
+            c = self.problem.c
+
+            # Initialize variables
+            for ivar, var in enumerate(self.problem.vars):
+                q[ivar,:] = q_now[var][-1,:]
+                for i in range(self.DeC.M_sub):
+                    q_now[var][i,:] = q_now[var][-1,:] # previous timestep last update
+                if self.problem.source is not None:
+                    for i in range(self.DeC.M_sub+1):
+                        sub_sources[var][i,:] = self.FEM2D.evaluate_function(lambda x,y: self.problem.source[var](x,y,t+dt*self.DeC.beta[i]))
+
+            print("Iteration %07d, time %1.5f, max vars %1.3f  %1.3f  %1.3f ,  min vars %1.3f  %1.3f  %1.3f "%(it,t,\
+                    np.max(q[0,:]),np.max(q[1,:]),np.max(q[2,:]),\
+                    np.min(q[0,:]),np.min(q[1,:]),np.min(q[2,:])  ) , end="\r")
+
+            for k in range(self.DeC.n_iter):
+                # Update variables
+                for var in self.problem.vars:
+                    q_prev[var][:,:] = q_now[var][:,:]
+
+                # Compute L2 high order space time discretization of the residual
+                # And update of q_now
+                self.implicitEuler_one_step(dt, self.stab_coeff, \
+                             q_prev, vect_q, q_now, sub_sources = sub_sources,\
+                             coriolis_not_uni = cor_nu,\
+                             dirichlet_BC=dirichlet_BC,
+                             curl_stab_flag = curl_stab_flag)
+            
+            for ivar, var in enumerate(self.problem.vars):
+                q[ivar,:] = q_now[var][-1,:]
+
+            it+=1
+            t=t+dt
+            t_save+=dt
+            if t_save > dt_save:
+                it_save+=1
+                t_save = 0.
+                for var in self.problem.vars:
+                    q_save[var][it_save,:] = q_now[var][-1,:]
+                tt_save[it_save] = t
+
+        print("Iteration %07d, time %1.5f, max vars %1.3f  %1.3f  %1.3f ,  min vars %1.3f  %1.3f  %1.3f "%(it,t,\
+                    np.max(q[0,:]),np.max(q[1,:]),np.max(q[2,:]),\
+                    np.min(q[0,:]),np.min(q[1,:]),np.min(q[2,:])  ))
+            
+
+        # Final step to save
+        it_save+=1
+        Nt_save = it_save
+        for var in self.problem.vars:
+            q_save[var][it_save,:] = q_now[var][-1,:]
+            q_save[var] = q_save[var][:Nt_save+1,:]
+        tt_save[it_save] = t
+        tt_save = tt_save[:Nt_save+1] 
+        comp_time = time.time() - tic 
+        print("Simulation over in %1.2f seconds"%comp_time)
+
+
+        if (with_error or with_error_vertex) and self.problem.exact is not None:
+            print("Computing exact solution and error")
+            for it_save, t in enumerate(tt_save):
+                if it_save == 0:
+                    continue
+                # Computing error
+                dt_tmp = (tt_save[it_save]- tt_save[it_save-1])/self.problem.T_fin
+                for ivar, var in enumerate(self.problem.vars):
+                    if with_error:
+                        ex = self.FEM2D.evaluate_function(lambda x,y: self.problem.exact[var](x,y,t))
+                        error[ivar] += np.linalg.norm(q_save[var][it_save,:]-ex)/np.sqrt(self.FEM2D.n_dof_tot)*dt_tmp
+                    if with_error_vertex:
+                        ex = self.FEM2D.evaluate_function_vertex(lambda x,y: self.problem.exact[var](x,y,t))
+                        sol_vertex = self.FEM2D.from_vector_to_vertex(q_save[var][it_save,:])
+                        error_vertex[ivar] += np.linalg.norm(sol_vertex-ex)/np.sqrt(len(ex))*dt_tmp
+
+        if save_sol is not None:
+            q_final = dict()
+            for var in self.problem.vars:
+                q_final[var] = q_save[var][-1]
+
+            sol_to_save = [q_final, tt_save[-1], comp_time, error, error_vertex ]
+            # Open a file and use dump()
+            savefile_name = self.problem.folderName+"/final_sol_"+method_name+"_ord_%d_N_%04d.pkl"%(self.FEM2D.FEM1Dx.degree+1,self.FEM2D.geom.N_elem_dir[0])
+            with open(savefile_name, 'wb') as file:
+                # A new file will be created
+                pickle.dump(sol_to_save, file)
+        
+        
+        print("")
+        return q_save, tt_save, comp_time, error, error_vertex
+
+    def implicitEuler_one_step(self, dt, A, B, q_prev, vect_q, q_now,\
+                           sub_sources, coriolis_not_uni, \
+                           dirichlet_BC = None, curl_stab_flag=False):
+        """Perform one implicit Euler correction sweep over all sub-nodes.
+    
+        This routine assembles sources, residuals, and stabilization terms for each
+        node and applies one implicit update using `inv_lump`.
+        """
+    
+        # Compute L2 high order space time discretization of the residual
+    
+        c   = self.problem.c
+        cor = self.problem.coriolis
+        op  = self.FEM2D.operator
+        fric = self.problem.friction
+        stab_curl_coeff = self.stab_curl_coeff
+        dx_min = self.FEM2D.geom.dx_min
+
+        self.build_whole_q_vector(q_prev, vect_q)
+
+        #Define RHS
+        RHS = A @ vect_q #Change name of matrix A according to modifications above
+        vect_q = sqparse.linalg.spsolve(A+dt*B, vect_q) #Again, change A and B names.
+        #Just out of curiosity: we would try different solvers. 
+        # spsolve is a LU solver, so not necessarily the best for big systems...
+        #vect_q = sqparse.linalg.bicgstab(A+dt*B, vect_q) #Again, change A and B names.
+        #vect_q = sqparse.linalg.gmres(A+dt*B, vect_q) #Again, change A and B names.
+
+        for var in problem.vars:
+            q_now[var][m,:] = q_prev[var][m,:] - dt*op["inv_lump"]@L2[var][:]
+
+        q_now = q_prev.copy()
+        self.split_whole_q_vector(q_now, vect_q)
+
+        if dirichlet_BC is not None:
+            for bc_item in dirichlet_BC.keys():
+                for var in dirichlet_BC[bc_item].vars:
+                    q_now[var][m,dirichlet_BC[bc_item].indexes] =\
+                        dirichlet_BC[bc_item].dirichlet_vector[var]
 
 def define_sources(all_sources, q_prev, sub_sources, theta_m, cor, coriolis_not_uni, fric):
     """Build momentum and pressure source terms in semi-discrete form.
@@ -1833,6 +2120,7 @@ def DeC_one_step(problem, DeC, FEM2D, dt, al, stab_curl_coeff, q_prev, L2, q_now
                 for var in dirichlet_BC[bc_item].vars:
                     q_now[var][m,dirichlet_BC[bc_item].indexes] =\
                         dirichlet_BC[bc_item].dirichlet_vector[var]
+
 
 
 def get_stencil_indexes(i_cell, degree):
