@@ -13,6 +13,7 @@ If you use conda ([how to install miniconda](https://www.anaconda.com/docs/getti
 ```bash
 conda create -n gfsupg python=3.11
 conda activate gfsupg
+conda install pip
 ```
 And then install the code, either using pip:
 
