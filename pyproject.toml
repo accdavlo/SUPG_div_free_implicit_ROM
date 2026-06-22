@@ -9,7 +9,6 @@ description = "Finite Element SUPG solver for the 2D hyperbolic acoustics proble
 readme = "README.md"
 requires-python = ">=3.9"
 dependencies = [
-    "numba>=0.64.0",
     "scipy>=1.17.0",
     "matplotlib>=3.10.0",
     "ipykernel",
