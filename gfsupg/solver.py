@@ -618,12 +618,12 @@ class Scipy2DFEM:
         self.operator["inv_lump"]   = invert_lumped_matrix(self.operator["lump_mass"])
         print("Assembling Matrices  %02d/%d"%(tot_mat+1,tot_mat+1), end="\r")
 
-    def build_matrices_MOR(self, basis):
+    def build_matrices_MOR(self, basis, n_dof_rb):
         self.n_dof_rb = dict()
         self.operator_MOR = dict()
         for var in tuple(basis.keys()): #("u", "v", "p"):
             self.operator_MOR[var] = dict()
-            self.n_dof_rb[var] = basis[var].shape[1]
+            self.n_dof_rb[var] = n_dof_rb[var]
             for var_bis in tuple(basis.keys()):
                 self.operator_MOR[var][var_bis] = dict()
                 for i, matrix in enumerate(self.operator):
@@ -678,7 +678,49 @@ class Scipy2DFEM:
             raise NotImplementedError("Equation not implemented for GF residuals in Scipy2DFEM")
         return res
 
+    def compute_GF_residual_MOR(self, q, source, basis, problem="acoustics"):
+        res = dict()
+        res_rb = dict()
+        norm_res = dict()
+        norm_res_rb = dict()
+        if problem=="acoustics":
+            for var in ("p","u","v"):
+                res[var] = np.zeros_like(basis[var] @ q[var])
+                res_rb[var] = np.zeros_like(q[var])
+            
+            res["p"] = (self.operator["IDx_tilde"]@(basis["u"] @ q["u"])\
+                +self.operator["IDy_tilde"]@(basis["v"] @ q["v"])\
+                -self.operator["mass_tilde"]@source["p"]\
+                    )/self.geom.dx[0]/self.geom.dx[1]
+            res_rb["p"] = (self.operator_MOR["p"]["u"]["IDx_tilde"]@ q["u"]\
+                +self.operator_MOR["p"]["v"]["IDy_tilde"]@ q["v"]\
+                -basis["p"].T @ (self.operator["mass_tilde"]@source["p"])\
+                    )/self.geom.dx[0]/self.geom.dx[1]
+            
+            res["u"] = (self.operator["IDx"]@(basis["p"] @ q["p"])\
+                        -self.operator["mass_tilde_x"]@source["u"]\
+                        )/self.geom.dx[0]
+            res_rb["u"] = (self.operator_MOR["u"]["p"]["IDx"]@ q["p"]\
+                        -basis["u"].T @ (self.operator["mass_tilde_x"]@source["u"])\
+                        )/self.geom.dx[0]
+            
+            res["v"] = (self.operator["IDy"]@(basis["p"] @ q["p"])\
+                        -self.operator["mass_tilde_y"]@source["v"]\
+                        )/self.geom.dx[1]
+            res_rb["v"] = (self.operator_MOR["v"]["p"]["IDy"]@ q["p"]\
+                        -basis["v"].T @ (self.operator["mass_tilde_y"]@source["v"])\
+                        )/self.geom.dx[1]
+        else:
+            raise NotImplementedError("Equation not implemented for GF residuals in Scipy2DFEM")
+        
+        norm_res["p"] = np.linalg.norm(res["p"]*self.geom.dx[0]*self.geom.dx[1], 1)
+        norm_res["u"] = np.linalg.norm(res["u"]*self.geom.dx[0]*self.geom.dx[1], 1)
+        norm_res["v"] = np.linalg.norm(res["v"]*self.geom.dx[0]*self.geom.dx[1], 1)
 
+        norm_res_rb["p"] = np.linalg.norm(res_rb["p"]*self.geom.dx[0]*self.geom.dx[1], 1)
+        norm_res_rb["u"] = np.linalg.norm(res_rb["u"]*self.geom.dx[0]*self.geom.dx[1], 1)
+        norm_res_rb["v"] = np.linalg.norm(res_rb["v"]*self.geom.dx[0]*self.geom.dx[1], 1)
+        return res, res_rb, norm_res, norm_res_rb
 
     def compute_noGF_residual(self, q, source, problem="acoustics"):
         res = dict()
@@ -1276,19 +1318,19 @@ class DeCSpaceTimeSUPGSolver:
         for var in self.problem.vars:
             for var_bis in self.problem.vars:
                 if self.trick_second_der:
-                    op[var][var_bis]["DxDx2"] = op[var][var_bis]["DxI"]@op[var][var_bis]["inv_lump"]@op[var][var_bis]["IDx"]
-                    op[var][var_bis]["DyDy2"] = op[var][var_bis]["DyI"]@op[var][var_bis]["inv_lump"]@op[var][var_bis]["IDy"]
+                    op[var][var_bis]["DxDx2"] = op[var][var_bis]["DxI"]@op[var_bis][var]["inv_lump"]@op[var][var_bis]["IDx"]
+                    op[var][var_bis]["DyDy2"] = op[var][var_bis]["DyI"]@op[var_bis][var]["inv_lump"]@op[var][var_bis]["IDy"]
                     op[var][var_bis]["DxDx2_tilde"] = \
                         op[var][var_bis]["DxI"]@\
-                        op[var][var_bis]["inv_lump"]@\
+                        op[var_bis][var]["inv_lump"]@\
                         op[var][var_bis]["mass_tilde_y"]@\
-                        op[var][var_bis]["inv_lump"]@\
+                        op[var_bis][var]["inv_lump"]@\
                         op[var][var_bis]["IDx"]
                     op[var][var_bis]["DyDy2_tilde"] = \
                         op[var][var_bis]["DyI"]@\
-                        op[var][var_bis]["inv_lump"]@\
+                        op[var_bis][var]["inv_lump"]@\
                         op[var][var_bis]["mass_tilde_x"]@\
-                        op[var][var_bis]["inv_lump"]@\
+                        op[var_bis][var]["inv_lump"]@\
                         op[var][var_bis]["IDy"]
                 else:
                     op[var][var_bis]["DxDx2"] = op[var][var_bis]["DxDx"]
@@ -1296,21 +1338,21 @@ class DeCSpaceTimeSUPGSolver:
                     op[var][var_bis]["DxDx2_tilde"] = op[var][var_bis]["DxDx_tilde"]
                     op[var][var_bis]["DyDy2_tilde"] = op[var][var_bis]["DyDy_tilde"]
 
-                op[var][var_bis]["DxDx3"] = op[var][var_bis]["DxI"]@op[var][var_bis]["inv_lump"]@op[var][var_bis]["IDx"]
-                op[var][var_bis]["DyDy3"] = op[var][var_bis]["DyI"]@op[var][var_bis]["inv_lump"]@op[var][var_bis]["IDy"]
+                op[var][var_bis]["DxDx3"] = op[var][var_bis]["DxI"]@op[var_bis][var]["inv_lump"]@op[var][var_bis]["IDx"]
+                op[var][var_bis]["DyDy3"] = op[var][var_bis]["DyI"]@op[var_bis][var]["inv_lump"]@op[var][var_bis]["IDy"]
 
 
                 op[var][var_bis]["DxDx3_tilde"] = \
                     op[var][var_bis]["DxI"]@\
-                    op[var][var_bis]["inv_lump"]@\
+                    op[var_bis][var]["inv_lump"]@\
                     op[var][var_bis]["mass_tilde_y"]@\
-                    op[var][var_bis]["inv_lump"]@\
+                    op[var_bis][var]["inv_lump"]@\
                     op[var][var_bis]["IDx"]
                 op[var][var_bis]["DyDy3_tilde"] = \
                     op[var][var_bis]["DyI"]@\
-                    op[var][var_bis]["inv_lump"]@\
+                    op[var_bis][var]["inv_lump"]@\
                     op[var][var_bis]["mass_tilde_x"]@\
-                    op[var][var_bis]["inv_lump"]@\
+                    op[var_bis][var]["inv_lump"]@\
                     op[var][var_bis]["IDy"]
 
                 op[var][var_bis]["ZxMy"] =   op[var][var_bis]["DxDx"]-op[var][var_bis]["DxDx3"]
@@ -1321,24 +1363,24 @@ class DeCSpaceTimeSUPGSolver:
 
                 op[var][var_bis]["DxZy_int"] =   op[var][var_bis]["DyDx_tilde"]-\
                                                     op[var][var_bis]["DyI"]@\
-                                                    op[var][var_bis]["inv_lump"]@\
+                                                    op[var_bis][var]["inv_lump"]@\
                                                     op[var][var_bis]["IDx_tilde"]
 
                 op[var][var_bis]["DyZx_int"] =   op[var][var_bis]["DxDy_tilde"]-\
                                                     op[var][var_bis]["DxI"]@\
-                                                    op[var][var_bis]["inv_lump"]@\
+                                                    op[var_bis][var]["inv_lump"]@\
                                                     op[var][var_bis]["IDy_tilde"]
 
                 op[var][var_bis]["My_tilde_Zx_int"] =  op[var][var_bis]["DxM_tilde"] - \
-                            op[var][var_bis]["DxI"]@op[var][var_bis]["inv_lump"]@op[var][var_bis]["mass_tilde_tilde"]
+                            op[var][var_bis]["DxI"]@op[var_bis][var]["inv_lump"]@op[var][var_bis]["mass_tilde_tilde"]
 
                 op[var][var_bis]["Mx_tilde_Zy_int"] =  op[var][var_bis]["DyM_tilde"]- \
-                            op[var][var_bis]["DyI"]@op[var][var_bis]["inv_lump"]@op[var][var_bis]["mass_tilde_tilde"]
+                            op[var][var_bis]["DyI"]@op[var_bis][var]["inv_lump"]@op[var][var_bis]["mass_tilde_tilde"]
 
                 op[var][var_bis]["Zx_int_My"] = op[var][var_bis]["DxI_tilde"]\
-                            -op[var][var_bis]["DxI"]@op[var][var_bis]["inv_lump"]@op[var][var_bis]["mass_tilde_x"]
+                            -op[var][var_bis]["DxI"]@op[var_bis][var]["inv_lump"]@op[var][var_bis]["mass_tilde_x"]
                 op[var][var_bis]["Zy_int_Mx"] = op[var][var_bis]["DyI_tilde"]\
-                            -op[var][var_bis]["DyI"]@op[var][var_bis]["inv_lump"]@op[var][var_bis]["mass_tilde_y"]
+                            -op[var][var_bis]["DyI"]@op[var_bis][var]["inv_lump"]@op[var][var_bis]["mass_tilde_y"]
 
     def set_ic(self):
         if hasattr(self.problem,"perturbation") and hasattr(self.problem,"steady_state_test"):
@@ -1903,7 +1945,6 @@ class DeCSpaceTimeSUPGSolver:
         
         print("")
         return q_save, tt_save, comp_time, error, error_vertex
-    
 
 def define_sources(all_sources, q_prev, sub_sources, theta_m, cor, coriolis_not_uni, fric):
     """Build momentum and pressure source terms in semi-discrete form.

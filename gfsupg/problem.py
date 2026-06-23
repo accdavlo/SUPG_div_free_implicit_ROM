@@ -360,6 +360,11 @@ class SmoothVortexTestCaseParam(LinearAcoustic2D):
 
         self.exact = {"u": u0, "v": v0, "p": lambda x, y, t: 1.0}
         return self.exact
+    
+    def set_parameters(self, mu):
+        self.g = mu[0]
+        self.r0 = mu[1]
+        self.coeff_exp = mu[2]
 
 
 class SourceVortexTestCase(LinearAcoustic2D):
