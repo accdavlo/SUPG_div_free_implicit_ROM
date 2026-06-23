@@ -1625,17 +1625,42 @@ class ImplicitEuler(DeCSpaceTimeSUPGSolver):
             curr_i += size_q
 
 
-    def build_whole_matrices(self,a,dx):
+    def build_whole_matrices(self,a,dx, dirichlet_BC = None):
         A_C=sparse.csr_matrix((self.FEM2D.n_dof_tot*3,self.FEM2D.n_dof_tot*3))
         A_SU=sparse.csr_matrix((self.FEM2D.n_dof_tot*3,self.FEM2D.n_dof_tot*3))
         Eps_CGFq=sparse.csr_matrix((self.FEM2D.n_dof_tot*3,self.FEM2D.n_dof_tot*3))
         Eps_SUGFq=sparse.csr_matrix((self.FEM2D.n_dof_tot*3,self.FEM2D.n_dof_tot*3))
         zero = sparse.csr_matrix((self.FEM2D.n_dof_tot,self.FEM2D.n_dof_tot))
 
-        A_C = vstack([hstack([self.FEM2D.operator["mass"], zero, zero]), hstack([zero, self.FEM2D.operator["mass"], zero]),hstack([zero, zero, self.FEM2D.operator["mass"]])])
-        A_SU = vstack([hstack([zero, zero, self.FEM2D.operator["DxI"]]), hstack([zero, zero, self.FEM2D.operator["DyI"]]),hstack([self.FEM2D.operator["DxI"], self.FEM2D.operator["DyI"], zero])])
-        Eps_CGFq = vstack([hstack([zero, zero, self.FEM2D.operator["IDx"]]), hstack([zero, zero, self.FEM2D.operator["IDx_tilde"]]),hstack([self.FEM2D.operator["IDx_tilde"], self.FEM2D.operator["IDy_tilde"], zero])])
-        Eps_SUGFq = a * dx * vstack([hstack([self.FEM2D.operator["DxDx_tilde"], self.FEM2D.operator["DxDy_tilde"], zero ]), hstack([self.FEM2D.operator["DxDx_tilde"], self.FEM2D.operator["DyDy_tilde"], zero ]),hstack([zero, zero, self.FEM2D.operator["DxDx_tilde"] + self.FEM2D.operator["DyDy_tilde"]])])
+        A_C = vstack([hstack([self.FEM2D.operator["mass"], zero, zero]), \
+                      hstack([zero, self.FEM2D.operator["mass"], zero]),\
+                      hstack([zero, zero, self.FEM2D.operator["mass"]])])
+        A_SU = vstack([hstack([zero, zero, self.FEM2D.operator["DxI"]]), \
+                       hstack([zero, zero, self.FEM2D.operator["DyI"]]),\
+                       hstack([self.FEM2D.operator["DxI"], self.FEM2D.operator["DyI"], zero])])
+        Eps_CGFq = vstack([hstack([zero, zero, self.FEM2D.operator["IDx"]]), \
+                           hstack([zero, zero, self.FEM2D.operator["IDx_tilde"]]),\
+                           hstack([self.FEM2D.operator["IDx_tilde"], self.FEM2D.operator["IDy_tilde"], zero])])
+        Eps_SUGFq = a * dx * vstack([hstack([self.FEM2D.operator["DxDx_tilde"], self.FEM2D.operator["DxDy_tilde"], zero ]), \
+                                     hstack([self.FEM2D.operator["DxDx_tilde"], self.FEM2D.operator["DyDy_tilde"], zero ]),\
+                                     hstack([zero, zero, self.FEM2D.operator["DxDx_tilde"] + self.FEM2D.operator["DyDy_tilde"]])])
+
+        if dirichlet_BC is not None:
+            for bc_item in dirichlet_BC.keys():
+                    for i in dirichlet_BC[bc_item].indexes:
+                        delete_row_in_coo_and_keep_diag_one(A_C, i)
+        if dirichlet_BC is not None:
+            for bc_item in dirichlet_BC.keys():
+                    for i in dirichlet_BC[bc_item].indexes:
+                        delete_row_in_coo(A_SU, i)
+        if dirichlet_BC is not None:
+            for bc_item in dirichlet_BC.keys():
+                    for i in dirichlet_BC[bc_item].indexes:
+                        delete_row_in_coo(Eps_CGFq, i)
+        if dirichlet_BC is not None:
+            for bc_item in dirichlet_BC.keys():
+                    for i in dirichlet_BC[bc_item].indexes:
+                        delete_row_in_coo(Eps_SUGFq, i)
 
         return A_C+A_SU, Eps_CGFq + Eps_SUGFq
 
@@ -2158,6 +2183,26 @@ def delete_row_in_coo(A, i):
     new_col = np.copy(A.col)
     new_row = np.copy(A.row)
 
+    new_data=np.delete(new_data,idx_row)
+    new_col = np.delete(new_col, idx_row)
+    new_row[idx_higher_rows]-=1
+    new_row= np.delete(new_row,idx_row)
+
+    return sparse.coo_matrix((new_data,(new_row,new_col)), shape = (A.shape[0]-1,A.shape[1]))
+
+def delete_row_in_coo_and_keep_diag_one(A, i):
+    """Delete row `i` from a COO sparse matrix and return a new COO matrix."""
+
+    idx_row = (A.row==i) & (A.col != i)
+    diag_i = (A.row==i) & (A.col == i)
+    print(diag_i[diag_i == True])
+    idx_higher_rows = A.row>i
+
+    new_data = np.copy(A.data)
+    new_col = np.copy(A.col)
+    new_row = np.copy(A.row)
+
+    new_data[diag_i] = 1.0 
     new_data=np.delete(new_data,idx_row)
     new_col = np.delete(new_col, idx_row)
     new_row[idx_higher_rows]-=1
