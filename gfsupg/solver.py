@@ -619,10 +619,11 @@ class Scipy2DFEM:
         print("Assembling Matrices  %02d/%d"%(tot_mat+1,tot_mat+1), end="\r")
 
     def build_matrices_MOR(self, basis):
-        self.n_dof_rb = basis["u"].shape[1]
+        self.n_dof_rb = dict()
         self.operator_MOR = dict()
         for var in tuple(basis.keys()): #("u", "v", "p"):
             self.operator_MOR[var] = dict()
+            self.n_dof_rb[var] = basis[var].shape[1]
             for var_bis in tuple(basis.keys()):
                 self.operator_MOR[var][var_bis] = dict()
                 for i, matrix in enumerate(self.operator):
@@ -1267,6 +1268,78 @@ class DeCSpaceTimeSUPGSolver:
         op["Zy_int_Mx"] = op["DyI_tilde"]\
                        -op["DyI"]@op["inv_lump"]@op["mass_tilde_y"]                       
 
+    def set_second_derivative_operators_MOR(self):
+        """If trick second der is used, then instead of the second derivative operator
+        we set the composition of the first derivative operators with
+        the inverse of the lumped mass matrix to match the kernels of the central part"""
+        op = self.FEM2D.operator_MOR
+        for var in self.problem.vars:
+            for var_bis in self.problem.vars:
+                if self.trick_second_der:
+                    op[var][var_bis]["DxDx2"] = op[var][var_bis]["DxI"]@op[var][var_bis]["inv_lump"]@op[var][var_bis]["IDx"]
+                    op[var][var_bis]["DyDy2"] = op[var][var_bis]["DyI"]@op[var][var_bis]["inv_lump"]@op[var][var_bis]["IDy"]
+                    op[var][var_bis]["DxDx2_tilde"] = \
+                        op[var][var_bis]["DxI"]@\
+                        op[var][var_bis]["inv_lump"]@\
+                        op[var][var_bis]["mass_tilde_y"]@\
+                        op[var][var_bis]["inv_lump"]@\
+                        op[var][var_bis]["IDx"]
+                    op[var][var_bis]["DyDy2_tilde"] = \
+                        op[var][var_bis]["DyI"]@\
+                        op[var][var_bis]["inv_lump"]@\
+                        op[var][var_bis]["mass_tilde_x"]@\
+                        op[var][var_bis]["inv_lump"]@\
+                        op[var][var_bis]["IDy"]
+                else:
+                    op[var][var_bis]["DxDx2"] = op[var][var_bis]["DxDx"]
+                    op[var][var_bis]["DyDy2"] = op[var][var_bis]["DyDy"]
+                    op[var][var_bis]["DxDx2_tilde"] = op[var][var_bis]["DxDx_tilde"]
+                    op[var][var_bis]["DyDy2_tilde"] = op[var][var_bis]["DyDy_tilde"]
+
+                op[var][var_bis]["DxDx3"] = op[var][var_bis]["DxI"]@op[var][var_bis]["inv_lump"]@op[var][var_bis]["IDx"]
+                op[var][var_bis]["DyDy3"] = op[var][var_bis]["DyI"]@op[var][var_bis]["inv_lump"]@op[var][var_bis]["IDy"]
+
+
+                op[var][var_bis]["DxDx3_tilde"] = \
+                    op[var][var_bis]["DxI"]@\
+                    op[var][var_bis]["inv_lump"]@\
+                    op[var][var_bis]["mass_tilde_y"]@\
+                    op[var][var_bis]["inv_lump"]@\
+                    op[var][var_bis]["IDx"]
+                op[var][var_bis]["DyDy3_tilde"] = \
+                    op[var][var_bis]["DyI"]@\
+                    op[var][var_bis]["inv_lump"]@\
+                    op[var][var_bis]["mass_tilde_x"]@\
+                    op[var][var_bis]["inv_lump"]@\
+                    op[var][var_bis]["IDy"]
+
+                op[var][var_bis]["ZxMy"] =   op[var][var_bis]["DxDx"]-op[var][var_bis]["DxDx3"]
+                op[var][var_bis]["ZyMx"] =   op[var][var_bis]["DyDy"]-op[var][var_bis]["DyDy3"]
+
+                op[var][var_bis]["ZxMy_tilde"] =   op[var][var_bis]["DxDx_tilde"]-op[var][var_bis]["DxDx3_tilde"]
+                op[var][var_bis]["ZyMx_tilde"] =   op[var][var_bis]["DyDy_tilde"]-op[var][var_bis]["DyDy3_tilde"]
+
+                op[var][var_bis]["DxZy_int"] =   op[var][var_bis]["DyDx_tilde"]-\
+                                                    op[var][var_bis]["DyI"]@\
+                                                    op[var][var_bis]["inv_lump"]@\
+                                                    op[var][var_bis]["IDx_tilde"]
+
+                op[var][var_bis]["DyZx_int"] =   op[var][var_bis]["DxDy_tilde"]-\
+                                                    op[var][var_bis]["DxI"]@\
+                                                    op[var][var_bis]["inv_lump"]@\
+                                                    op[var][var_bis]["IDy_tilde"]
+
+                op[var][var_bis]["My_tilde_Zx_int"] =  op[var][var_bis]["DxM_tilde"] - \
+                            op[var][var_bis]["DxI"]@op[var][var_bis]["inv_lump"]@op[var][var_bis]["mass_tilde_tilde"]
+
+                op[var][var_bis]["Mx_tilde_Zy_int"] =  op[var][var_bis]["DyM_tilde"]- \
+                            op[var][var_bis]["DyI"]@op[var][var_bis]["inv_lump"]@op[var][var_bis]["mass_tilde_tilde"]
+
+                op[var][var_bis]["Zx_int_My"] = op[var][var_bis]["DxI_tilde"]\
+                            -op[var][var_bis]["DxI"]@op[var][var_bis]["inv_lump"]@op[var][var_bis]["mass_tilde_x"]
+                op[var][var_bis]["Zy_int_Mx"] = op[var][var_bis]["DyI_tilde"]\
+                            -op[var][var_bis]["DyI"]@op[var][var_bis]["inv_lump"]@op[var][var_bis]["mass_tilde_y"]
+
     def set_ic(self):
         if hasattr(self.problem,"perturbation") and hasattr(self.problem,"steady_state_test"):
             if "num" in self.problem.name:
@@ -1581,7 +1654,7 @@ class DeCSpaceTimeSUPGSolver:
                 for ivar, var in enumerate(self.problem.vars):
                     if with_error:
                         ex = self.FEM2D.evaluate_function(lambda x,y: self.problem.exact[var](x,y,t))
-                        error[ivar] += np.linalg.norm(q_save[var][it_save,:]-ex)/np.sqrt(self.FEM2D.n_dof_tot)*dt_tmp
+                        error[ivar] += np.linalg.norm(q_save[var][it_save,:]-ex)/(np.linalg.norm(ex) + 1e-10)*dt_tmp
                     if with_error_vertex:
                         ex = self.FEM2D.evaluate_function_vertex(lambda x,y: self.problem.exact[var](x,y,t))
                         sol_vertex = self.FEM2D.from_vector_to_vertex(q_save[var][it_save,:])
@@ -1604,8 +1677,8 @@ class DeCSpaceTimeSUPGSolver:
         return q_save, tt_save, comp_time, error, error_vertex
     
     def solve_MOR(self, basis, stab_coeff = None, with_error = False, \
-                  with_error_vertex = False, GF=None, CFL = None, \
-                  save_sol = False, stab = None, trick_second_der = False, curl_stab_flag = False):
+                  with_error_vertex = False, GF = None, CFL = None, \
+                  save_sol = False, stab = None, curl_stab_flag = False):
         """Run a full transient simulation.
 
         Parameters
@@ -1670,47 +1743,41 @@ class DeCSpaceTimeSUPGSolver:
         else:
             raise NotImplementedError("Equations %s not implemented in solve in DeCSpaceTimeSolver"%self.problem.equations)
 
-        #if stab_coeff is None:
-        #    if self.stab == "SUPG":
-        #        if self.FEM2D.FEM1Dx.degree <= 5:
-        #            al = 0.05  # 5*10**-self.FEM2D.FEM1Dx.degree
-        #        else:
-        #            al = 0.02
-        #    elif self.stab == "OSS":
-        #        if self.FEM2D.FEM1Dx.degree <= 2:
-        #            al = 1e-2  # 5*10**-self.FEM2D.FEM1Dx.degree
-        #        else:
-        #            al = 4e-2
-        #else:
-        #    al = stab_coeff
-        #self.stab_coeff = al
-        #self.stab_curl_coeff = 1e-4
+        if stab_coeff is None:
+            if self.stab == "SUPG":
+                if self.FEM2D.FEM1Dx.degree <= 5:
+                    al = 0.05  # 5*10**-self.FEM2D.FEM1Dx.degree
+                else:
+                    al = 0.02
+            elif self.stab == "OSS":
+                raise NotImplementedError("OSS not implemented for MOR solver")
+        else:
+            al = stab_coeff
+        self.stab_coeff = al
+        self.stab_curl_coeff = 1e-4
 
-        if trick_second_der!=self.trick_second_der:
-            self.trick_second_der = trick_second_der
-            self.set_second_derivative_operators()
-        
+        self.set_second_derivative_operators_MOR()
 
         dt_save = self.problem.T_fin/(self.Nt_save-2)
 
         q_save = dict() 
 
         it = 0
-        t=0.
+        t = 0.
         t_save  = 0.
         it_save = 0
         L2 = dict()
         for var in self.problem.vars: # ("u", "v", "p")
-            L2[var] = np.zeros(self.FEM2D.n_dof_rb)
-            q_save[var] = np.zeros((self.Nt_save, self.FEM2D.n_dof_rb))
+            L2[var] = np.zeros(self.FEM2D.n_dof_rb[var])
+            q_save[var] = np.zeros((self.Nt_save, self.FEM2D.n_dof_rb[var]))
         tt_save = np.zeros(self.Nt_save)
 
         q_prev = dict()
         q_now  = dict()
-        q      = np.zeros((len(self.problem.vars), self.FEM2D.n_dof_rb)) 
+        q      = dict()
         for var in self.problem.vars:
-            q_prev[var] = np.zeros((self.DeC.n_subNodes, self.FEM2D.n_dof_rb))
-            q_now[var]  = np.zeros((self.DeC.n_subNodes, self.FEM2D.n_dof_rb))
+            q_prev[var] = np.zeros((self.DeC.n_subNodes, self.FEM2D.n_dof_rb[var]))
+            q_now[var]  = np.zeros((self.DeC.n_subNodes, self.FEM2D.n_dof_rb[var]))
             for i in range(self.DeC.n_subNodes):
                 q_now[var][i,:] = basis[var].T @ self.ic_vect[var]
 
@@ -1721,10 +1788,10 @@ class DeCSpaceTimeSUPGSolver:
         source = dict()
         if self.problem.source is not None:
             for var in self.problem.vars:
-                source[var] = self.FEM2D.evaluate_function(lambda x,y: self.problem.source[var](x,y,0.))
+                source[var] = basis[var].T @ self.FEM2D.evaluate_function(lambda x,y: self.problem.source[var](x,y,0.))
         else:
             for var in self.problem.vars:
-                source[var] = self.FEM2D.evaluate_function(lambda x,y: 0.)
+                source[var] = basis[var].T @ self.FEM2D.evaluate_function(lambda x,y: 0.)
 
         if self.problem.coriolis_non_uniform is not None:
             cor_nu = self.FEM2D.evaluate_function(self.problem.coriolis_non_uniform)
@@ -1732,16 +1799,7 @@ class DeCSpaceTimeSUPGSolver:
             cor_nu = self.FEM2D.evaluate_function(lambda x,y: 0.)
 
         if self.problem.dirichlet is not None:
-            dirichlet_BC = dict()
-            for bc_item in self.problem.dirichlet.keys():
-                BC_values = dict()
-                idxs = self.FEM2D.dirichlet_indexes[bc_item]
-                for var in self.problem.dirichlet[bc_item]:
-                    BC_values[var] = self.ic_vect[var][idxs]
-                dirichlet_BC[bc_item] = Dirichlet_BC_set(idxs, BC_values)
-
-        else:
-            dirichlet_BC = None
+            raise NotImplementedError("Not implemented boundary condition for MOR solver")
 
         sub_sources = dict()
         for ivar, var in enumerate(self.problem.vars):
@@ -1756,16 +1814,16 @@ class DeCSpaceTimeSUPGSolver:
 
             # Initialize variables
             for ivar, var in enumerate(self.problem.vars):
-                q[ivar,:] = q_now[var][-1,:]
+                q[var] = q_now[var][-1,:]
                 for i in range(self.DeC.M_sub):
                     q_now[var][i,:] = q_now[var][-1,:] # previous timestep last update
                 if self.problem.source is not None:
                     for i in range(self.DeC.M_sub+1):
-                        sub_sources[var][i,:] = self.FEM2D.evaluate_function(lambda x,y: self.problem.source[var](x,y,t+dt*self.DeC.beta[i]))
+                        sub_sources[var][i,:] = basis[var].T @ self.FEM2D.evaluate_function(lambda x,y: self.problem.source[var](x,y,t+dt*self.DeC.beta[i]))
 
             print("Iteration %07d, time %1.5f, max vars %1.3f  %1.3f  %1.3f ,  min vars %1.3f  %1.3f  %1.3f "%(it,t,\
-                    np.max(q[0,:]),np.max(q[1,:]),np.max(q[2,:]),\
-                    np.min(q[0,:]),np.min(q[1,:]),np.min(q[2,:])  ) , end="\r")
+                    np.max(q["u"]),np.max(q["v"]),np.max(q["p"]),\
+                    np.min(q["u"]),np.min(q["v"]),np.min(q["p"])  ) , end="\r")
 
             for k in range(self.DeC.n_iter):
                 # Update variables
@@ -1774,17 +1832,17 @@ class DeCSpaceTimeSUPGSolver:
 
                 # Compute L2 high order space time discretization of the residual
                 # And update of q_now
-                DeC_one_step(self.problem, self.DeC, self.FEM2D, dt, al,\
-                             self.stab_curl_coeff, q_prev, L2, q_now, sub_sources = sub_sources,\
-                             coriolis_not_uni = cor_nu,\
-                             get_residual=get_residual,\
-                             get_stabilization=get_stabilization,\
-                             curl_stabilization=curl_stabilization,\
-                             dirichlet_BC=dirichlet_BC,
-                             curl_stab_flag = curl_stab_flag)
+                DeC_one_step_MOR(self.problem, self.DeC, self.FEM2D, dt, al,\
+                                 self.stab_curl_coeff, q_prev, L2, q_now, sub_sources = sub_sources,\
+                                 coriolis_not_uni = cor_nu,\
+                                 get_residual=get_residual,\
+                                 get_stabilization=get_stabilization,\
+                                 curl_stabilization=None,\
+                                 dirichlet_BC=None,
+                                 curl_stab_flag = curl_stab_flag)
             
-            for ivar, var in enumerate(self.problem.vars):
-                q[ivar,:] = q_now[var][-1,:]
+            for var in self.problem.vars:
+                q[var] = q_now[var][-1,:]
 
             it+=1
             t=t+dt
@@ -1796,9 +1854,9 @@ class DeCSpaceTimeSUPGSolver:
                     q_save[var][it_save,:] = q_now[var][-1,:]
                 tt_save[it_save] = t
 
-        print("Iteration %07d, time %1.5f, max vars %1.3f  %1.3f  %1.3f ,  min vars %1.3f  %1.3f  %1.3f "%(it,t,\
-                    np.max(q[0,:]),np.max(q[1,:]),np.max(q[2,:]),\
-                    np.min(q[0,:]),np.min(q[1,:]),np.min(q[2,:])  ))
+        #print("Iteration %07d, time %1.5f, max vars %1.3f  %1.3f  %1.3f ,  min vars %1.3f  %1.3f  %1.3f "%(it,t,\
+        #           np.max(q["u"]),np.max(q["v"]),np.max(q["p"]),\
+        #            np.min(q["u"]),np.min(q["v"]),np.min(q["p"])  ))
             
 
         # Final step to save
@@ -1823,11 +1881,12 @@ class DeCSpaceTimeSUPGSolver:
                 for ivar, var in enumerate(self.problem.vars):
                     if with_error:
                         ex = self.FEM2D.evaluate_function(lambda x,y: self.problem.exact[var](x,y,t))
-                        error[ivar] += np.linalg.norm(q_save[var][it_save,:]-ex)/np.sqrt(self.FEM2D.n_dof_tot)*dt_tmp
+                        error[ivar] += np.linalg.norm(basis[var] @ q_save[var][it_save,:]-ex)/(np.linalg.norm(ex) + 1e-10)*dt_tmp
                     if with_error_vertex:
-                        ex = self.FEM2D.evaluate_function_vertex(lambda x,y: self.problem.exact[var](x,y,t))
-                        sol_vertex = self.FEM2D.from_vector_to_vertex(q_save[var][it_save,:])
-                        error_vertex[ivar] += np.linalg.norm(sol_vertex-ex)/np.sqrt(len(ex))*dt_tmp
+                        #ex = self.FEM2D.evaluate_function_vertex(lambda x,y: self.problem.exact[var](x,y,t))
+                        #sol_vertex = self.FEM2D.from_vector_to_vertex(q_save[var][it_save,:])
+                        #error_vertex[ivar] += np.linalg.norm(sol_vertex-ex)/np.sqrt(len(ex))*dt_tmp
+                        pass
 
         if save_sol is not None:
             q_final = dict()
@@ -1836,7 +1895,7 @@ class DeCSpaceTimeSUPGSolver:
 
             sol_to_save = [q_final, tt_save[-1], comp_time, error, error_vertex ]
             # Open a file and use dump()
-            savefile_name = self.problem.folderName+"/final_sol_"+method_name+"_ord_%d_N_%04d.pkl"%(self.FEM2D.FEM1Dx.degree+1,self.FEM2D.geom.N_elem_dir[0])
+            savefile_name = self.problem.folderName+"/final_sol_MOR_"+method_name+"_ord_%d_N_%04d.pkl"%(self.FEM2D.FEM1Dx.degree+1,self.FEM2D.geom.N_elem_dir[0])
             with open(savefile_name, 'wb') as file:
                 # A new file will be created
                 pickle.dump(sol_to_save, file)
@@ -1864,6 +1923,22 @@ def define_sources(all_sources, q_prev, sub_sources, theta_m, cor, coriolis_not_
     all_sources["p"][:] = - theta_m@sub_sources["p"]
     return all_sources
 
+def define_sources_MOR(all_sources, q_prev, sub_sources, theta_m, cor, coriolis_not_uni, fric):
+    """Build momentum and pressure source terms in semi-discrete form.
+
+    Signs follow the convention used in `DeC_one_step`, where the assembled
+    source terms are moved to the left-hand side of the residual equations.
+    """
+
+    all_sources["u"][:] = -cor* (theta_m @ q_prev["v"])\
+            + fric* (theta_m @ q_prev["u"])\
+            - theta_m@sub_sources["u"]
+    all_sources["v"][:] = cor* (theta_m @ q_prev["u"])\
+            + fric* (theta_m @ q_prev["v"])\
+            - theta_m@sub_sources["v"]
+    all_sources["p"][:] = - theta_m@sub_sources["p"]
+
+    return all_sources
 
 def define_residuals(galer_residuals, q_prev,all_sources,m,op,c,dx_min , al, theta_m, dt):
 
@@ -2081,8 +2156,8 @@ def OSS_GF_curl_stabilization(all_stabs, q_prev,all_sources,m,op,c,dx_min , al, 
 
 
 def DeC_one_step(problem, DeC, FEM2D, dt, al, stab_curl_coeff, q_prev, L2, q_now,\
-                       sub_sources, coriolis_not_uni, get_residual, get_stabilization, curl_stabilization,\
-                       dirichlet_BC = None, curl_stab_flag=False):
+                 sub_sources, coriolis_not_uni, get_residual, get_stabilization, curl_stabilization,\
+                 dirichlet_BC = None, curl_stab_flag = False):
     """Perform one DeC correction sweep over all sub-nodes.
 
     This routine assembles sources, residuals, and stabilization terms for each
@@ -2129,6 +2204,52 @@ def DeC_one_step(problem, DeC, FEM2D, dt, al, stab_curl_coeff, q_prev, L2, q_now
                 for var in dirichlet_BC[bc_item].vars:
                     q_now[var][m,dirichlet_BC[bc_item].indexes] =\
                         dirichlet_BC[bc_item].dirichlet_vector[var]
+
+def DeC_one_step_MOR(problem, DeC, FEM2D, dt, al, stab_curl_coeff, q_prev, L2, q_now,\
+                     sub_sources, coriolis_not_uni, get_residual, get_stabilization, curl_stabilization,\
+                     dirichlet_BC = None, curl_stab_flag = False):
+    """Perform one DeC correction sweep over all sub-nodes.
+
+    This routine assembles sources, residuals, and stabilization terms for each
+    DeC sub-node and applies one explicit update using `inv_lump`.
+    """
+
+    # Compute L2 high order space time discretization of the residual
+
+    c   = problem.c
+    cor = problem.coriolis
+    op  = FEM2D.operator_MOR
+    fric = problem.friction
+
+    all_sources   = dict()
+    gal_residuals = dict()
+    all_stabs     = dict()
+    for var in problem.vars:
+        all_sources[var]   = np.empty(q_prev[var][0,:].shape)
+        gal_residuals[var] = np.empty(q_prev[var][0,:].shape)
+        all_stabs[var]     = np.empty(q_prev[var][0,:].shape)
+
+
+    for m in range(1,DeC.n_subNodes):
+
+        # Carefull with the signs! source_u,_v,_p are meant on the LHS, while the other source was on the RHS
+        define_sources_MOR(all_sources, q_prev, sub_sources, DeC.theta[m,:], cor, coriolis_not_uni, fric)
+        get_residual(gal_residuals, q_prev,all_sources,m,op,c,FEM2D.geom.dx_min, al, DeC.theta[m,:], dt)
+        get_stabilization(all_stabs, q_prev,all_sources,m,op,c,FEM2D.geom.dx_min, al, DeC.theta[m,:], dt)
+
+        for var in problem.vars:
+            L2[var][:] = gal_residuals[var]+ all_stabs[var]
+
+        if curl_stab_flag:
+            curl_stabilization(all_stabs,q_prev,all_sources,m,op,c,FEM2D.geom.dx_min, stab_curl_coeff, DeC.theta[m,:], dt)
+            for var in ["u","v"]:
+                L2[var][:] += all_stabs[var]
+
+        for var in problem.vars:
+            q_now[var][m,:] = q_prev[var][m,:] - dt*op[var][var]["inv_lump"]@L2[var][:]
+
+        if dirichlet_BC is not None:
+            raise NotImplementedError("Not implemented bcs in the MOR DeC solver")
 
 
 def get_stencil_indexes(i_cell, degree):

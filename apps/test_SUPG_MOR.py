@@ -50,7 +50,7 @@ elif mode == "online":
     #plt.semilogy(Sigma_svd_u,'o')
     #plt.show()
 
-    problem = SmoothVortexTestCaseParam(is_long=True)
+    problem = SmoothVortexTestCaseParam(is_long=True, coeff_exp=2.5)
     order = 2
     FEM1Dx = FiniteElement1D(order-1,"gaussLobatto","gaussLobatto")
     FEM1Dy = FiniteElement1D(order-1,"gaussLobatto","gaussLobatto")
@@ -61,15 +61,38 @@ elif mode == "online":
     FEM2D.build_matrices_MOR(basis)
 
     print("Computing the GF-SUPG")
-    solver = DeCSpaceTimeSUPGSolver(problem, FEM2D, dec, GF = True, stab = "SUPG", trick_second_der=False)
-    qGF_MOR, ttGF_MOR, comp_timeGF_MOR, _ , _  = solver.solve_MOR(basis=basis,save_sol = True, with_error = True)
+    solver = DeCSpaceTimeSUPGSolver(problem, FEM2D, dec, GF = True, stab = "SUPG")
+    qGF_MOR, ttGF_MOR, comp_timeGF_MOR, error_MOR, _  = solver.solve_MOR(basis=basis,save_sol = True, with_error = True)
+    print("Relative Error MOR u:", error_MOR[0])
+    print("Relative Error MOR v:", error_MOR[1])
+    print("Relative Error MOR p:", error_MOR[2])
+    print("")
 
-#it = -1
-#fig, axs = plt.subplots(1,3, figsize=(15,4))
-#plot_sol(FEM2D, q["u"][it,:]**2+q["v"][it,:]**2 , axs[0],fig, levels=21)
-#plot_sol(FEM2D, qGF["u"][it,:]**2+qGF["v"][it,:]**2 , axs[1],fig, levels=21)
-#plot_sol(FEM2D, qGF["u"][0,:]**2+qGF["v"][0,:]**2 , axs[2],fig, levels=21)
-#axs[0].set_title("Non Global Flux")
-#axs[1].set_title("Global Flux")
-#axs[2].set_title("Exact Solution")
-#plt.show()
+    qGF, ttGF, comp_timeGF, error, _  = solver.solve(save_sol = True, with_error = True)
+    print("Relative Error FOM u:", error[0])
+    print("Relative Error FOM v:", error[1])
+    print("Relative Error FOM p:", error[2])
+    print("")
+
+    it = -1
+    fig, axs = plt.subplots(1,3, figsize=(15,4))
+    plot_sol(FEM2D, (basis["u"] @ qGF_MOR["u"][it,:])**2 + (basis["v"] @ qGF_MOR["v"][it,:])**2 , axs[0],fig, levels=21)
+    plot_sol(FEM2D, qGF["u"][it,:]**2 + qGF["v"][it,:]**2 , axs[1],fig, levels=21)
+    plot_sol(FEM2D, qGF["u"][0,:]**2 + qGF["v"][0,:]**2 , axs[2],fig, levels=21)
+    axs[0].set_title("Global Flux: MOR")
+    axs[1].set_title("Global Flux: FOM")
+    axs[2].set_title("Exact Solution")
+
+    qGF_MOR_recon = qGF_MOR
+    for var in tuple(basis.keys()):
+        qGF_MOR_recon[var] = (basis[var] @ qGF_MOR[var].T).T
+    plot_all_sols(problem, FEM2D, qGF_MOR_recon, it, ttGF_MOR[-1], levels=21)
+
+    error_MOR_vs_FOM = np.zeros(len(problem.vars))
+    for ivar, var in enumerate(problem.vars):
+        error_MOR_vs_FOM[ivar] = np.linalg.norm(qGF_MOR_recon[var][it,:] - qGF[var][it,:])/np.linalg.norm(qGF[var][it,:])
+    print("Relative Error MOR w.r.t. FOM u:", error_MOR_vs_FOM[0])
+    print("Relative Error MOR w.r.t. FOM v:", error_MOR_vs_FOM[1])
+    print("Relative Error MOR w.r.t. FOM p:", error_MOR_vs_FOM[2])    
+
+    plt.show()
