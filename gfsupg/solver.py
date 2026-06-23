@@ -23,6 +23,7 @@ import scipy.sparse as sparse
 from scipy.optimize import LinearConstraint, minimize
 
 from .quadr import lagrange_basis, lagrange_basis_deriv, nodes_weights
+import matplotlib.pyplot as plt
 
 
 class CartesianGeometry:
@@ -1620,8 +1621,8 @@ class ImplicitEuler(DeCSpaceTimeSUPGSolver):
         """
         curr_i = 0
         for k in self.problem.vars:
-            size_q = q[k].shape[0]
-            q[k] = vect_q[curr_i:curr_i+size_q-1, :]
+            size_q = q[k].shape[1]
+            q[k][:,:] = vect_q[:, curr_i:curr_i+size_q]
             curr_i += size_q
 
 
@@ -1649,18 +1650,26 @@ class ImplicitEuler(DeCSpaceTimeSUPGSolver):
             for bc_item in dirichlet_BC.keys():
                     for i in dirichlet_BC[bc_item].indexes:
                         A_C = delete_row_in_coo_and_keep_diag_one(A_C, i)
+                        A_C = delete_row_in_coo_and_keep_diag_one(A_C, i + self.FEM2D.n_dof_tot)
+                        A_C = delete_row_in_coo_and_keep_diag_one(A_C, i + 2*self.FEM2D.n_dof_tot)
         if dirichlet_BC is not None:
             for bc_item in dirichlet_BC.keys():
                     for i in dirichlet_BC[bc_item].indexes:
                         A_SU = put_zero_row_in_coo(A_SU, i)
+                        A_SU = put_zero_row_in_coo(A_SU, i + self.FEM2D.n_dof_tot)
+                        A_SU = put_zero_row_in_coo(A_SU, i + 2*self.FEM2D.n_dof_tot)
         if dirichlet_BC is not None:
             for bc_item in dirichlet_BC.keys():
                     for i in dirichlet_BC[bc_item].indexes:
                         Eps_CGFq = put_zero_row_in_coo(Eps_CGFq, i)
+                        Eps_CGFq = put_zero_row_in_coo(Eps_CGFq, i + self.FEM2D.n_dof_tot)
+                        Eps_CGFq = put_zero_row_in_coo(Eps_CGFq, i + 2*self.FEM2D.n_dof_tot)
         if dirichlet_BC is not None:
             for bc_item in dirichlet_BC.keys():
                     for i in dirichlet_BC[bc_item].indexes:
                         Eps_SUGFq = put_zero_row_in_coo(Eps_SUGFq, i)
+                        Eps_SUGFq = put_zero_row_in_coo(Eps_SUGFq, i + self.FEM2D.n_dof_tot)
+                        Eps_SUGFq = put_zero_row_in_coo(Eps_SUGFq, i + 2*self.FEM2D.n_dof_tot)
 
         return A_C+A_SU, Eps_CGFq + Eps_SUGFq
 
@@ -1893,13 +1902,12 @@ class ImplicitEuler(DeCSpaceTimeSUPGSolver):
 
         #Define RHS
         RHS = A @ vect_q[0,:] #Change name of matrix A according to modifications above
-        vect_q[1,:] = sparse.linalg.spsolve(A+dt*B, RHS) #Again, change A and B names.
+        #vect_q[1,:] = sparse.linalg.spsolve(A+dt*B, RHS) #Again, change A and B names.
         #Just out of curiosity: we would try different solvers. 
         # spsolve is a LU solver, so not necessarily the best for big systems...
         #vect_q[1,:] = sparse.linalg.bicgstab(A+dt*B, vect_q[0,:]) #Again, change A and B names.
-        #vect_q[1,:] = sparse.linalg.gmres(A+dt*B, vect_q[0,:]) #Again, change A and B names.
+        vect_q[1,:], _ = sparse.linalg.gmres(A+dt*B, RHS) #Again, change A and B names.
 
-        q_now = q_prev.copy()
         self.split_whole_q_vector(q_now, vect_q)
 
         if dirichlet_BC is not None:
