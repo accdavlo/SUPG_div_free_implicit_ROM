@@ -111,3 +111,15 @@ Symbols and definitions in 1D, omitting the cell $\mathcal{C}_{ij}$ indexes, usi
 |$D_xI_x\otimes ( D^y_y -D^yM^{-1}_yD_y)I_y$  | Mx\_tilde\_Zy\_int| 
 |$(D^x_x-D^xM^{-1}_xD_x)I_x\otimes M_y$  | Zx\_int\_My| 
 |$M_x\otimes ( D^y_y -D^yM^{-1}_yD_y)I_y$  | Zy\_int\_Mx| 
+
+
+
+
+### MOR progress
+[x] MOR for explicit method
+[ ] Computing residuals
+[x] Checking if higher CFLs are fine (with explicit up to 5 working)
+[ ] Boundary conditions
+[ ] Decrease the mesh size and get strong reduction and check the error convergence wrt reduced dimension
+
+[ ] Implicit MOR
