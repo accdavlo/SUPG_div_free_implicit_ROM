@@ -1442,7 +1442,7 @@ class DeCSpaceTimeSUPGSolver:
         """
 
         error, error_vertex, method_name, error_name, get_residual, get_stabilization, curl_stabilization = \
-                self.solver_set_parameters(self, stab_coeff, with_error, with_error_vertex, \
+                self.solver_set_parameters(stab_coeff, with_error, with_error_vertex, \
                                            GF, CFL, stab, trick_second_der)
         
 
@@ -1529,7 +1529,7 @@ class DeCSpaceTimeSUPGSolver:
 
                 # Compute L2 high order space time discretization of the residual
                 # And update of q_now
-                DeC_one_step(self.problem, self.DeC, self.FEM2D, dt, al,\
+                DeC_one_step(self.problem, self.DeC, self.FEM2D, dt, self.stab_coeff,\
                              self.stab_curl_coeff, q_prev, L2, q_now, sub_sources = sub_sources,\
                              coriolis_not_uni = cor_nu,\
                              get_residual=get_residual,\
@@ -1648,19 +1648,19 @@ class ImplicitEuler(DeCSpaceTimeSUPGSolver):
         if dirichlet_BC is not None:
             for bc_item in dirichlet_BC.keys():
                     for i in dirichlet_BC[bc_item].indexes:
-                        delete_row_in_coo_and_keep_diag_one(A_C, i)
+                        A_C = delete_row_in_coo_and_keep_diag_one(A_C, i)
         if dirichlet_BC is not None:
             for bc_item in dirichlet_BC.keys():
                     for i in dirichlet_BC[bc_item].indexes:
-                        delete_row_in_coo(A_SU, i)
+                        A_SU = put_zero_row_in_coo(A_SU, i)
         if dirichlet_BC is not None:
             for bc_item in dirichlet_BC.keys():
                     for i in dirichlet_BC[bc_item].indexes:
-                        delete_row_in_coo(Eps_CGFq, i)
+                        Eps_CGFq = put_zero_row_in_coo(Eps_CGFq, i)
         if dirichlet_BC is not None:
             for bc_item in dirichlet_BC.keys():
                     for i in dirichlet_BC[bc_item].indexes:
-                        delete_row_in_coo(Eps_SUGFq, i)
+                        Eps_SUGFq = put_zero_row_in_coo(Eps_SUGFq, i)
 
         return A_C+A_SU, Eps_CGFq + Eps_SUGFq
 
@@ -1704,7 +1704,7 @@ class ImplicitEuler(DeCSpaceTimeSUPGSolver):
         """
 
         error, error_vertex, method_name, error_name, get_residual, get_stabilization, curl_stabilization = \
-                self.solver_set_parameters(self, stab_coeff, with_error, with_error_vertex, \
+                self.solver_set_parameters(stab_coeff, with_error, with_error_vertex, \
                                            GF, CFL, stab, trick_second_der)
 
         dt_save = self.problem.T_fin/(self.Nt_save-2)
@@ -1725,13 +1725,13 @@ class ImplicitEuler(DeCSpaceTimeSUPGSolver):
         q_now  = dict()
         q      = np.zeros((len(self.problem.vars), self.FEM2D.n_dof_tot)) 
         for var in self.problem.vars:
-            q_prev[var] = np.zeros((1, self.FEM2D.n_dof_tot))
-            q_now[var]  = np.zeros((1, self.FEM2D.n_dof_tot))
-            for i in range(1): #range(self.DeC.n_subNodes):
+            q_prev[var] = np.zeros((2, self.FEM2D.n_dof_tot))
+            q_now[var]  = np.zeros((2, self.FEM2D.n_dof_tot))
+            for i in range(2): #range(self.DeC.n_subNodes):
                 q_now[var][i,:] = self.ic_vect[var]
 
-        size_array = sum(np.array([q_prev[k].shape[0] for k in self.problem.vars]))            
-        vect_q = np.empty(size_array, q_now['u'].shape[1])
+        size_array = sum(np.array([q_prev[k].shape[1] for k in self.problem.vars]))            
+        vect_q = np.empty((q_now['u'].shape[0], size_array))
 
         for var in self.problem.vars:
             q_save[var][it_save,:] = q_now[var][-1,:]
@@ -1770,7 +1770,15 @@ class ImplicitEuler(DeCSpaceTimeSUPGSolver):
         tic = time.time()
 
         #Define big matrices
-        A, B = self.build_whole_matrices(al, dx_min)
+        A, B = self.build_whole_matrices(self.stab_coeff, self.geom.dx_min, dirichlet_BC)
+        
+        #Enfore Dirichlet conditions
+        if dirichlet_BC is not None:
+            for bc_item in dirichlet_BC.keys():
+                for m in range(2):
+                    for var in dirichlet_BC[bc_item].vars:
+                        q_prev[var][m,dirichlet_BC[bc_item].indexes] =\
+                            dirichlet_BC[bc_item].dirichlet_vector[var]
 
         while (t<self.problem.T_fin and it<self.Nt_max):
             # Set dt
@@ -1790,18 +1798,17 @@ class ImplicitEuler(DeCSpaceTimeSUPGSolver):
                     np.max(q[0,:]),np.max(q[1,:]),np.max(q[2,:]),\
                     np.min(q[0,:]),np.min(q[1,:]),np.min(q[2,:])  ) , end="\r")
 
-            for k in range(self.DeC.n_iter):
-                # Update variables
-                for var in self.problem.vars:
-                    q_prev[var][:,:] = q_now[var][:,:]
+            # Update variables
+            for var in self.problem.vars:
+                q_prev[var][:,:] = q_now[var][:,:]
 
-                # Compute L2 high order space time discretization of the residual
-                # And update of q_now
-                self.implicitEuler_one_step(dt, self.stab_coeff, \
-                             q_prev, vect_q, q_now, sub_sources = sub_sources,\
-                             coriolis_not_uni = cor_nu,\
-                             dirichlet_BC=dirichlet_BC,
-                             curl_stab_flag = curl_stab_flag)
+            # Compute L2 high order space time discretization of the residual
+            # And update of q_now
+            self.implicitEuler_one_step(dt, A, B, \
+                         q_prev, vect_q, q_now, sub_sources = sub_sources,\
+                         coriolis_not_uni = cor_nu,\
+                         dirichlet_BC=dirichlet_BC,
+                         curl_stab_flag = curl_stab_flag)
             
             for ivar, var in enumerate(self.problem.vars):
                 q[ivar,:] = q_now[var][-1,:]
@@ -1881,29 +1888,26 @@ class ImplicitEuler(DeCSpaceTimeSUPGSolver):
         op  = self.FEM2D.operator
         fric = self.problem.friction
         stab_curl_coeff = self.stab_curl_coeff
-        dx_min = self.FEM2D.geom.dx_min
 
         self.build_whole_q_vector(q_prev, vect_q)
 
         #Define RHS
-        RHS = A @ vect_q #Change name of matrix A according to modifications above
-        vect_q = sqparse.linalg.spsolve(A+dt*B, vect_q) #Again, change A and B names.
+        RHS = A @ vect_q[0,:] #Change name of matrix A according to modifications above
+        vect_q[1,:] = sparse.linalg.spsolve(A+dt*B, RHS) #Again, change A and B names.
         #Just out of curiosity: we would try different solvers. 
         # spsolve is a LU solver, so not necessarily the best for big systems...
-        #vect_q = sqparse.linalg.bicgstab(A+dt*B, vect_q) #Again, change A and B names.
-        #vect_q = sqparse.linalg.gmres(A+dt*B, vect_q) #Again, change A and B names.
-
-        for var in problem.vars:
-            q_now[var][m,:] = q_prev[var][m,:] - dt*op["inv_lump"]@L2[var][:]
+        #vect_q[1,:] = sparse.linalg.bicgstab(A+dt*B, vect_q[0,:]) #Again, change A and B names.
+        #vect_q[1,:] = sparse.linalg.gmres(A+dt*B, vect_q[0,:]) #Again, change A and B names.
 
         q_now = q_prev.copy()
         self.split_whole_q_vector(q_now, vect_q)
 
         if dirichlet_BC is not None:
             for bc_item in dirichlet_BC.keys():
-                for var in dirichlet_BC[bc_item].vars:
-                    q_now[var][m,dirichlet_BC[bc_item].indexes] =\
-                        dirichlet_BC[bc_item].dirichlet_vector[var]
+                for m in range(2):
+                    for var in dirichlet_BC[bc_item].vars:
+                        q_now[var][m,dirichlet_BC[bc_item].indexes] =\
+                            dirichlet_BC[bc_item].dirichlet_vector[var]
 
 def define_sources(all_sources, q_prev, sub_sources, theta_m, cor, coriolis_not_uni, fric):
     """Build momentum and pressure source terms in semi-discrete form.
@@ -2173,6 +2177,22 @@ def put_zero_row_in_csr(A, i):
     else:
         raise ValueError("The type of the matrix is not csr to put to zero the row")
         
+def put_zero_row_in_coo(A, i):
+    """Delete row `i` from a COO sparse matrix and return a new COO matrix."""
+
+    idx_row = A.row==i
+    idx_higher_rows = A.row>i
+
+    new_data = np.copy(A.data)
+    new_col = np.copy(A.col)
+    new_row = np.copy(A.row)
+
+    new_data=np.delete(new_data,idx_row)
+    new_col = np.delete(new_col, idx_row)
+    new_row= np.delete(new_row,idx_row)
+
+    return sparse.coo_matrix((new_data,(new_row,new_col)), shape = (A.shape[0],A.shape[1]))
+
 def delete_row_in_coo(A, i):
     """Delete row `i` from a COO sparse matrix and return a new COO matrix."""
 
@@ -2195,20 +2215,19 @@ def delete_row_in_coo_and_keep_diag_one(A, i):
 
     idx_row = (A.row==i) & (A.col != i)
     diag_i = (A.row==i) & (A.col == i)
-    print(diag_i[diag_i == True])
     idx_higher_rows = A.row>i
-
+    
     new_data = np.copy(A.data)
     new_col = np.copy(A.col)
     new_row = np.copy(A.row)
-
+    
     new_data[diag_i] = 1.0 
     new_data=np.delete(new_data,idx_row)
     new_col = np.delete(new_col, idx_row)
-    new_row[idx_higher_rows]-=1
+    #new_row[idx_higher_rows]-=1
     new_row= np.delete(new_row,idx_row)
 
-    return sparse.coo_matrix((new_data,(new_row,new_col)), shape = (A.shape[0]-1,A.shape[1]))
+    return sparse.coo_matrix((new_data,(new_row,new_col)), shape = (A.shape[0],A.shape[1]))
 
 
 
