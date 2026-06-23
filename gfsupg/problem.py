@@ -130,7 +130,6 @@ class VortexTestCase(LinearAcoustic2D):
         }
         return self.exact
 
-
 class CoriolisVortexTestCase(LinearAcoustic2D):
     def __init__(self, basis_name="coriolis_vortex", pert_coeff=None, is_long=False, pert_type=None):
         self.is_long = is_long
@@ -271,6 +270,94 @@ class SmoothVortexTestCase(LinearAcoustic2D):
             u0 = lambda x, y, t: smooth_vortex_function(x, y, x0, y0) * (-y + y0)
             v0 = lambda x, y, t: smooth_vortex_function(x, y, x0, y0) * (x - x0)
             
+        self.exact = {"u": u0, "v": v0, "p": lambda x, y, t: 1.0}
+        return self.exact
+
+
+class SmoothVortexTestCaseParam(LinearAcoustic2D):
+    def __init__(self, basis_name="smooth_vortex_param", pert_coeff=None, is_long=False, pert_type=None, is_smaller=False, \
+                 g=9.81, r0=0.45, coeff_exp=1):
+        self.is_long = is_long
+        self.pert_type = pert_type
+        self.is_smaller = is_smaller
+        self.basis_name = basis_name
+        self.g = g
+        self.r0 = r0
+        self.coeff_exp = coeff_exp
+        name = ("smaller_" if self.is_smaller else "") + f"{basis_name}_{'long' if is_long else 'short'}" + (f"_{pert_type}_perturbation" if pert_type else "")
+
+        T_fin = 100.0 if is_long else (0.35 if pert_type else 1.0)
+        super().__init__(name, pert_coeff, T_fin)
+
+    def define_geom(self):
+        if self.is_smaller:
+            self.geometry_name = "periodic_square"
+            self.BC = np.array([0, 0, 0, 0], dtype=np.int32)
+        else:
+            self.geometry_name = "square"
+            self.BC = np.array([1, 1, 1, 1], dtype=np.int32)
+        self.xL = np.array([0., 0.], dtype=np.float64)
+        self.xR = np.array([1., 1.], dtype=np.float64)
+        self._setup_geometry_folder()
+
+    def dirichlet_BC(self):
+        if self.pert_type == "opt":
+            self.dirichlet = {"all": self.vars}
+        else:
+            self.dirichlet = None
+
+    def IC(self):
+        x0, y0 = 0.5, 0.5
+        p0 = lambda x, y: 1.0
+
+        if self.is_smaller:
+            u0 = lambda x, y: smooth_vortex_function_param(2.*(x-x0), 2.*(y-y0), 0., 0., self.g, self.r0, self.coeff_exp) * 2. * (-y + y0)
+            v0 = lambda x, y: smooth_vortex_function_param(2.*(x-x0), 2.*(y-y0), 0., 0., self.g, self.r0, self.coeff_exp) * 2. * (x - x0)
+            base_str = "smaller_smooth_vortex_long"
+        else:
+            u0 = lambda x, y: smooth_vortex_function_param(x, y, x0, y0, self.g, self.r0, self.coeff_exp) * (-y + y0)
+            v0 = lambda x, y: smooth_vortex_function_param(x, y, x0, y0, self.g, self.r0, self.coeff_exp) * (x - x0)
+            base_str = "smooth_vortex_long"
+
+        self.ics = {"u": u0, "v": v0, "p": p0}
+
+        if self.pert_type:
+            self.with_perturbation = True
+            self.base_test = base_str
+
+            if self.pert_type != "an":
+                self.steady_state_test = type(self)(is_long=True)
+
+            x0_p, y0_p = 0.4, 0.43
+            if self.is_smaller and self.pert_type != "an":
+                delta_u = lambda x, y: self.pert_coeff * pressure_perturbation_function(x, y, x0_p, y0_p)
+                delta_p = lambda x, y: 0.0
+            else:
+                delta_u = lambda x, y: 0.0
+                delta_p = lambda x, y: self.pert_coeff * pressure_perturbation_function(x, y, x0_p, y0_p)
+
+            delta_v = lambda x, y: 0.0
+            self.perturbation = {"u": delta_u, "v": delta_v, "p": delta_p}
+
+            if self.pert_type == "an":
+                # Re-evaluate an perturbations
+                d_p = lambda x, y: self.pert_coeff * pressure_perturbation_function(x, y, x0_p, y0_p)
+                self.ics["u"] = lambda x, y: u0(x, y)
+                self.ics["v"] = lambda x, y: v0(x, y)
+                self.ics["p"] = lambda x, y: p0(x, y) + d_p(x, y)
+                return self.ics
+            return self.perturbation
+        return self.ics
+
+    def generate_exact(self):
+        x0, y0 = 0.5, 0.5
+        if self.is_smaller:
+            u0 = lambda x, y, t: smooth_vortex_function_param(2.*(x-x0), 2.*(y-y0), 0., 0., self.g, self.r0, self.coeff_exp) * 2. * (-y + y0)
+            v0 = lambda x, y, t: smooth_vortex_function_param(2.*(x-x0), 2.*(y-y0), 0., 0., self.g, self.r0, self.coeff_exp) * 2. * (x - x0)
+        else:
+            u0 = lambda x, y, t: smooth_vortex_function_param(x, y, x0, y0, self.g, self.r0, self.coeff_exp) * (-y + y0)
+            v0 = lambda x, y, t: smooth_vortex_function_param(x, y, x0, y0, self.g, self.r0, self.coeff_exp) * (x - x0)
+
         self.exact = {"u": u0, "v": v0, "p": lambda x, y, t: 1.0}
         return self.exact
 
@@ -574,16 +661,20 @@ def vortex_perturbation_function(x, y, x0, y0):
     u = (r < r0)*Gam*(1. + cos(w*r))**2
     return u
 
-
-
 def smooth_vortex_function(x, y, x0, y0):
     r0 = 0.45
-    deltah = 0.1 
     g = 9.81
     Gam = 0.2                               #(12.*pi*np.sqrt(deltah*g))/(np.sqrt(315.*pi**2. - 2048.))/r0   # vortex intensity parameter
     r = np.sqrt((x-x0)**2+(y-y0)**2)
     rho = np.minimum((r/r0)**2,1.-1e-16)
     u = (r < r0)*2*Gam*np.exp(-1/(2*(1-rho)**2))*np.sqrt(g/(r0*(1-rho)**3))
+    return u
+
+def smooth_vortex_function_param(x, y, x0, y0, g, r0, coeff_exp):
+    Gam = 0.2                               #(12.*pi*np.sqrt(deltah*g))/(np.sqrt(315.*pi**2. - 2048.))/r0   # vortex intensity parameter
+    r = np.sqrt((x-x0)**2+(y-y0)**2)
+    rho = np.minimum((r/r0)**2,1.-1e-16)
+    u = (r < r0)*2*Gam*np.exp(-coeff_exp/(2*(1-rho)**2))*np.sqrt(g/(r0*(1-rho)**3))
     return u
 
 def gaussian(x,y,a):
