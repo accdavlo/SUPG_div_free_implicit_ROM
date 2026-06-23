@@ -1636,14 +1636,14 @@ class ImplicitEuler(DeCSpaceTimeSUPGSolver):
         A_C = vstack([hstack([self.FEM2D.operator["mass"], zero, zero]), \
                       hstack([zero, self.FEM2D.operator["mass"], zero]),\
                       hstack([zero, zero, self.FEM2D.operator["mass"]])])
-        A_SU = vstack([hstack([zero, zero, self.FEM2D.operator["DxI"]]), \
+        A_SU = a * dx * vstack([hstack([zero, zero, self.FEM2D.operator["DxI"]]), \
                        hstack([zero, zero, self.FEM2D.operator["DyI"]]),\
                        hstack([self.FEM2D.operator["DxI"], self.FEM2D.operator["DyI"], zero])])
         Eps_CGFq = vstack([hstack([zero, zero, self.FEM2D.operator["IDx"]]), \
-                           hstack([zero, zero, self.FEM2D.operator["IDx_tilde"]]),\
+                           hstack([zero, zero, self.FEM2D.operator["IDy"]]),\
                            hstack([self.FEM2D.operator["IDx_tilde"], self.FEM2D.operator["IDy_tilde"], zero])])
         Eps_SUGFq = a * dx * vstack([hstack([self.FEM2D.operator["DxDx_tilde"], self.FEM2D.operator["DxDy_tilde"], zero ]), \
-                                     hstack([self.FEM2D.operator["DxDx_tilde"], self.FEM2D.operator["DyDy_tilde"], zero ]),\
+                                     hstack([self.FEM2D.operator["DyDx_tilde"], self.FEM2D.operator["DyDy_tilde"], zero ]),\
                                      hstack([zero, zero, self.FEM2D.operator["DxDx_tilde"] + self.FEM2D.operator["DyDy_tilde"]])])
 
         if dirichlet_BC is not None:
