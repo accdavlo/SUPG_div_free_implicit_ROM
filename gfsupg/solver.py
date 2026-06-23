@@ -1608,8 +1608,8 @@ class ImplicitEuler(DeCSpaceTimeSUPGSolver):
         """
         curr_i = 0
         for k in self.problem.vars:
-            size_q = q[k].shape[0]
-            vect_q[curr_i:curr_i+size_q-1, :] = q[k]
+            size_q = q[k].shape[1]
+            vect_q[:, curr_i:curr_i+size_q] = q[k]
             curr_i += size_q
         
 
@@ -1688,7 +1688,7 @@ class ImplicitEuler(DeCSpaceTimeSUPGSolver):
 
         it = 0
         t=0.
-        t_save  = 0.
+        t_save  = 0
         it_save = 0
         L2 = dict()
         for var in self.problem.vars: # ("u", "v", "p")
@@ -1706,7 +1706,7 @@ class ImplicitEuler(DeCSpaceTimeSUPGSolver):
                 q_now[var][i,:] = self.ic_vect[var]
 
         size_array = sum(np.array([q_prev[k].shape[0] for k in self.problem.vars]))            
-        vect_q = np.empty(size_array, q[0].shape[1])
+        vect_q = np.empty(size_array, q_now['u'].shape[1])
 
         for var in self.problem.vars:
             q_save[var][it_save,:] = q_now[var][-1,:]
