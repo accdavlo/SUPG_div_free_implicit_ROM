@@ -22,7 +22,7 @@ class MOR:
 
         self.tol = tol
     
-    def run_offline(self, mu_offline, load_sol=False):
+    def run_offline(self, mu_offline, n_rb=None, load_sol=False):
         self.mu_offline = mu_offline
         # Generate (or read) the snapshots
         if not load_sol:
@@ -61,14 +61,19 @@ class MOR:
         # Check tolerance to assemble reduced basis
         print("Computing the reduced basis")
         self.n_rb = dict()
-        for var in self.problem.vars:
-            sum_SVD_curr = np.sum(Sigma_svd[var])
-            partial_sum_SVD_curr = 0.0
-            self.n_rb[var] = 1
-            while partial_sum_SVD_curr <= (1.0 - self.tol)*sum_SVD_curr:
-                partial_sum_SVD_curr += Sigma_svd[var][self.n_rb[var] - 1]
-                self.n_rb[var] += 1
-            self.basis[var] = self.basis[var][:,0:self.n_rb[var]]
+        if n_rb is None:
+            for var in self.problem.vars:
+                sum_SVD_curr = np.sum(Sigma_svd[var])
+                partial_sum_SVD_curr = 0.0
+                self.n_rb[var] = 1
+                while partial_sum_SVD_curr <= (1.0 - self.tol)*sum_SVD_curr:
+                    partial_sum_SVD_curr += Sigma_svd[var][self.n_rb[var] - 1]
+                    self.n_rb[var] += 1
+                self.basis[var] = self.basis[var][:,0:self.n_rb[var]]
+        else:
+            for var in self.problem.vars:
+                self.n_rb[var] = n_rb[var]
+                self.basis[var] = self.basis[var][:,0:self.n_rb[var]]
         print("Number of reduced basis for u:", self.n_rb["u"])
         print("Number of reduced basis for v:", self.n_rb["v"])
         print("Number of reduced basis for p:", self.n_rb["p"])
