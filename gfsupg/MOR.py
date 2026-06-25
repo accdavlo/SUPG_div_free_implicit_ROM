@@ -6,8 +6,6 @@ from gfsupg.plotting import *
 
 import matplotlib.pyplot as plt
 
-mode = "online"
-
 class MOR:
     """MOR solver with SUPG stabilization.
 
@@ -15,9 +13,8 @@ class MOR:
     and DeC iterations in time.
     """
 
-    def __init__(self, problem, FEM2D, DeC, tol=1e-5, GF=True, stab = "SUPG"):
+    def __init__(self, problem, FEM2D, DeC, tol=1e-5, GF=True, stab="SUPG"):
         self.FEM2D   = FEM2D
-        self.GF      = GF
         self.DeC     = DeC
         self.problem = problem
         
@@ -29,23 +26,24 @@ class MOR:
         self.mu_offline = mu_offline
         # Generate (or read) the snapshots
         if not load_sol:
-            us = np.zeros([self.FEM2D.n_dof_tot,len(self.mu_offline)], dtype=np.float64)
-            vs = np.zeros([self.FEM2D.n_dof_tot,len(self.mu_offline)], dtype=np.float64)
-            ps = np.zeros([self.FEM2D.n_dof_tot,len(self.mu_offline)], dtype=np.float64)
-            for i, mu_ in enumerate(mu_offline):
+            us = np.zeros([self.FEM2D.n_dof_tot,len(self.mu_offline)*self.solver.Nt_save], dtype=np.float64)
+            vs = np.zeros([self.FEM2D.n_dof_tot,len(self.mu_offline)*self.solver.Nt_save], dtype=np.float64)
+            ps = np.zeros([self.FEM2D.n_dof_tot,len(self.mu_offline)*self.solver.Nt_save], dtype=np.float64)
+            for idx_mu, mu_ in enumerate(mu_offline):
                 self.problem.set_parameters(mu_)
                 self.solver.set_ic()
 
                 print("Computing GF-SUPG")
-                qGF, _, _, _ , _  = self.solver.solve(save_sol = False, with_error = False)
+                qGF, _, _, _ , _  = self.solver.solve(save_sol=False, with_error=False)
 
-                us[:,i] = qGF["u"][-1,:]
-                vs[:,i] = qGF["v"][-1,:]
-                ps[:,i] = qGF["p"][-1,:]
+                for i in np.arange(0,qGF["u"].shape[0],1):
+                    us[:,i + idx_mu*self.solver.Nt_save] = qGF["u"][i,:]
+                    vs[:,i + idx_mu*self.solver.Nt_save] = qGF["v"][i,:]
+                    ps[:,i + idx_mu*self.solver.Nt_save] = qGF["p"][i,:]
         
-            np.savez("snapshots_offline.npz", us=us, vs=vs, ps=ps)
+            np.savez(f"snapshots_offline_{self.problem.name}.npz", us=us, vs=vs, ps=ps, mu_offline=mu_offline, n_dof_x=self.FEM2D.n_dof_dir[0], n_dof_y=self.FEM2D.n_dof_dir[1])
         else:
-            inputfile = np.load("snapshots_offline.npz")
+            inputfile = np.load(f"snapshots_offline_{self.problem.name}.npz")
             us = inputfile['us']
             vs = inputfile['vs']
             ps = inputfile['ps']
@@ -69,7 +67,7 @@ class MOR:
             self.n_rb[var] = 1
             while partial_sum_SVD_curr <= (1.0 - self.tol)*sum_SVD_curr:
                 partial_sum_SVD_curr += Sigma_svd[var][self.n_rb[var] - 1]
-                self.n_rb[var] = self.n_rb[var] + 1
+                self.n_rb[var] += 1
             self.basis[var] = self.basis[var][:,0:self.n_rb[var]]
         print("Number of reduced basis for u:", self.n_rb["u"])
         print("Number of reduced basis for v:", self.n_rb["v"])

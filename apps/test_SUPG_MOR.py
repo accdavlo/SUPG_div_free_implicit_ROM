@@ -13,24 +13,30 @@ FEM1Dx = FiniteElement1D(order-1,"gaussLobatto","gaussLobatto")
 FEM1Dy = FiniteElement1D(order-1,"gaussLobatto","gaussLobatto")
 dec = DeC((order+1)//2,order,"gaussLobatto")
 
-Ns = np.array([10,10], dtype=np.int32)
-problem = SmoothVortexTestCaseParam(is_long=True)
+Nx = 40
+Ny = 40
+Ns = np.array([Nx,Ny], dtype=np.int32)
+#problem = SmoothVortexTestCaseParam(is_long=True)
+problem = ObliqueTestCase()
 geom = CartesianGeometry(problem.xL,problem.xR, Ns, problem.geometry_folder, BC=problem.BC)
 FEM2D = Scipy2DFEM(geom, FEM1Dx, FEM1Dy, folder=problem.folderName)
 
 MOR_instance = MOR(problem, FEM2D, dec, tol=1e-5, GF=True, stab="SUPG")
-load_sol = True
+load_sol = False
 
 # Define the parameters to compute our snapshots
-coeff_exp = np.arange(1,11,1)
-mu_offline = [[9.81, 0.45, coeff_exp_] for coeff_exp_ in coeff_exp]
+#coeff_exp = np.arange(1,11,1)
+#mu_offline = [[9.81, 0.45, coeff_exp_] for coeff_exp_ in coeff_exp]
+mu_offline = [[]]
 
 # Perform the offline phase  
 MOR_instance.run_offline(mu_offline, load_sol=load_sol)
 
 # Perform the online phase
 compute_residuals = True
-online_params = [9.81, 0.45, 2.5]
+#online_params = [9.81, 0.45, 2.5]
+online_params = []
+problem.set_final_time(1.0)
 MOR_instance.run_online(online_params, compute_residuals=compute_residuals)
 
 if compute_residuals:
@@ -51,12 +57,14 @@ print("")
 
 # Compute the FOM solution for the current 'online parameters'
 problem.set_parameters(online_params)
-solver = DeCSpaceTimeSUPGSolver(problem, FEM2D, dec, GF = True, stab = "SUPG", trick_second_der = False)
-qGF, ttGF, comp_timeGF, error, _  = solver.solve(save_sol = True, with_error = True)
+solver = DeCSpaceTimeSUPGSolver(problem, FEM2D, dec, GF=True, stab="SUPG", trick_second_der=False)
+qGF, ttGF, comp_timeGF, error, _  = solver.solve(save_sol=True, with_error=True)
 print("Relative Error FOM u:", error[0])
 print("Relative Error FOM v:", error[1])
 print("Relative Error FOM p:", error[2])
 print("")
+plot_all_sols(problem, FEM2D, qGF, 0, ttGF[0], levels=21)
+plot_all_sols(problem, FEM2D, qGF, -1, ttGF[-1], levels=21)
 
 # Post-processing analysis
 it = -1

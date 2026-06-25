@@ -360,7 +360,7 @@ class SmoothVortexTestCaseParam(LinearAcoustic2D):
 
         self.exact = {"u": u0, "v": v0, "p": lambda x, y, t: 1.0}
         return self.exact
-    
+
     def set_parameters(self, mu):
         self.g = mu[0]
         self.r0 = mu[1]
@@ -488,8 +488,8 @@ class MovingSourceTestCase(LinearAcoustic2D):
 
 
 class ObliqueTestCase(LinearAcoustic2D):
-    def __init__(self, name="oblique", pert_coeff=None):
-        super().__init__(name, pert_coeff, T_fin=1.0)
+    def __init__(self, name="oblique", T_fin=1.0, pert_coeff=None):
+        super().__init__(name, pert_coeff, T_fin)
 
     def define_geom(self):
         self.geometry_name = "periodic_square"
@@ -521,6 +521,12 @@ class ObliqueTestCase(LinearAcoustic2D):
             "p": lambda x, y, t: 0.5 * (cos(coef * xip(x, y, t)) + cos(coef * xim(x, y, t)))
         }
         return self.exact
+
+    def set_parameters(self, mu):
+        pass
+
+    def set_final_time(self, Tf):
+        self.T_fin = Tf
 
 
 class RP4TestCase(LinearAcoustic2D):

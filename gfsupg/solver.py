@@ -1696,7 +1696,7 @@ class DeCSpaceTimeSUPGSolver:
                 for ivar, var in enumerate(self.problem.vars):
                     if with_error:
                         ex = self.FEM2D.evaluate_function(lambda x,y: self.problem.exact[var](x,y,t))
-                        error[ivar] += np.linalg.norm(q_save[var][it_save,:]-ex)/(np.linalg.norm(ex) + 1e-10)*dt_tmp
+                        error[ivar] += np.linalg.norm(q_save[var][it_save,:]-ex)/np.sqrt(np.linalg.norm(ex) + 1e-10)*dt_tmp
                     if with_error_vertex:
                         ex = self.FEM2D.evaluate_function_vertex(lambda x,y: self.problem.exact[var](x,y,t))
                         sol_vertex = self.FEM2D.from_vector_to_vertex(q_save[var][it_save,:])
