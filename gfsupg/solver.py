@@ -1261,7 +1261,7 @@ class DeCSpaceTimeSUPGSolver:
         if hasattr(self.problem,"perturbation") and hasattr(self.problem,"steady_state_test"):
             if "num" in self.problem.name:
                 # Load numerical solution at the steady state
-                base_folder=self.problem.steady_state_test.self.folderName
+                base_folder=self.problem.steady_state_test.folderName
                 order = self.FEM2D.FEM1Dx.degree+1
                 N     = self.FEM2D.geom.N_elem_dir[0]
                 if self.GF:
@@ -1644,7 +1644,7 @@ class ImplicitEuler(DeCSpaceTimeSUPGSolver):
                            hstack([self.FEM2D.operator["IDx_tilde"], self.FEM2D.operator["IDy_tilde"], zero])])
         Eps_SUGFq = a * dx * vstack([hstack([self.FEM2D.operator["DxDx_tilde"], self.FEM2D.operator["DxDy_tilde"], zero ]), \
                                      hstack([self.FEM2D.operator["DyDx_tilde"], self.FEM2D.operator["DyDy_tilde"], zero ]),\
-                                     hstack([zero, zero, self.FEM2D.operator["DxDx_tilde"] + self.FEM2D.operator["DyDy_tilde"]])])
+                                     hstack([zero, zero, self.FEM2D.operator["DxDx"] + self.FEM2D.operator["DyDy"]])])
 
         if dirichlet_BC is not None:
             for bc_item in dirichlet_BC.keys():
@@ -1901,12 +1901,16 @@ class ImplicitEuler(DeCSpaceTimeSUPGSolver):
         self.build_whole_q_vector(q_prev, vect_q)
 
         #Define RHS
-        RHS = A @ vect_q[0,:] #Change name of matrix A according to modifications above
-        #vect_q[1,:] = sparse.linalg.spsolve(A+dt*B, RHS) #Again, change A and B names.
-        #Just out of curiosity: we would try different solvers. 
+        RHS = A @ vect_q[0,:]
+        vect_q[1,:] = sparse.linalg.spsolve(A+dt*B, RHS) 
+        #Just out of curiosity: we could try different solvers. 
         # spsolve is a LU solver, so not necessarily the best for big systems...
-        #vect_q[1,:] = sparse.linalg.bicgstab(A+dt*B, vect_q[0,:]) #Again, change A and B names.
-        vect_q[1,:], _ = sparse.linalg.gmres(A+dt*B, RHS) #Again, change A and B names.
+        #vect_q[1,:] = sparse.linalg.bicgstab(A+dt*B, RHS) 
+        #vect_q[1,:], _ = sparse.linalg.gmres(A+dt*B, RHS) 
+        #vect_q[1,:], _ = sparse.linalg.gmres(A, (A-dt*B)@vect_q[0,:])
+        #RHS = (A - 0.5*dt*B)@ vect_q[0,:] #Let's try Crank-Nicholson?
+        ##vect_q[1,:], _ = sparse.linalg.gmres((A+0.5*dt*B), RHS)
+        #vect_q[1,:] = sparse.linalg.spsolve(A+0.5*dt*B, RHS) 
 
         self.split_whole_q_vector(q_now, vect_q)
 
