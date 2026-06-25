@@ -367,10 +367,15 @@ class SmoothVortexTestCaseParam(LinearAcoustic2D):
         self.coeff_exp = mu[2]
 
 class ShuVortexTestCaseParam(LinearAcoustic2D):
-    def __init__(self, basis_name="shu_vortex_param", pert_coeff=None, is_long=False, pert_type=None):
+    def __init__(self, basis_name="shu_vortex_param", pert_coeff=None, is_long=False, pert_type=None, is_smaller=False, x0=0.5, y0=0.5, r0_param=0.1):
         self.is_long = is_long
         self.pert_type = pert_type
+        self.is_smaller = is_smaller
         self.basis_name = basis_name
+        
+        self.x0 = x0
+        self.y0 = y0
+        self.r0_param = r0_param
  
         name = ("smaller_" if self.is_smaller else "") + f"{basis_name}_{'long' if is_long else 'short'}" + (f"_{pert_type}_perturbation" if pert_type else "")
 
@@ -395,11 +400,9 @@ class ShuVortexTestCaseParam(LinearAcoustic2D):
             self.dirichlet = None
 
     def IC(self):
-        x0, y0 = 0.5, 0.5 
         p0 = lambda x, y: 1.0
-        u0 = lambda x, y, theta: shu_vortex_function_param(x, y, x0, y0, self.Gam, self.r, self.r0_param) * (-np.sin(theta))
-        v0 = lambda x, y, theta: shu_vortex_function_param(x, y, x0, y0, self.Gam, self.r, self.r0_param) * (np.cos(theta))
-
+        u0 = lambda x, y: shu_vortex_function_param(x, y, self.x0, self.y0, self.r0_param) * (-(y - self.y0))
+        v0 = lambda x, y: shu_vortex_function_param(x, y, self.x0, self.y0, self.r0_param) * (x - self.x0)
 
         self.ics = {"u": u0, "v": v0, "p": p0}
 
@@ -431,15 +434,14 @@ class ShuVortexTestCaseParam(LinearAcoustic2D):
         return self.ics
 
     def generate_exact(self):
-        x0, y0 = 0.5, 0.5
-        u0 = lambda x, y, theta, t: shu_vortex_function_param(x, y, 0.5, 0.5, self.Gam, self.r, self.r0) * (-np.sin(theta))
-        v0 = lambda x, y, theta, t: shu_vortex_function_param(x, y, 0.5, 0.5, self.Gam, self.r, self.r0) * (np.cos(theta))
+        u0 = lambda x, y, t: shu_vortex_function_param(x, y, self.x0, self.y0, self.r0_param) * (-(y - self.y0))
+        v0 = lambda x, y, t: shu_vortex_function_param(x, y, self.x0, self.y0, self.r0_param) * (x - self.x0)
 
         self.exact = {"u": u0, "v": v0, "p": lambda x, y, t: 1.0}
         return self.exact
 
     def set_parameters(self, mu):
-        self.r0 = mu[0]   
+        self.r0_param = mu[0]   
 
 
 class SourceVortexTestCase(LinearAcoustic2D):
@@ -763,11 +765,11 @@ def smooth_vortex_function_param(x, y, x0, y0, g, r0, coeff_exp):
     u = (r < r0)*2*Gam*np.exp(-coeff_exp/(2*(1-rho)**2))*np.sqrt(g/(r0*(1-rho)**3))
     return u
 
-def shu_vortex_function_param(x, y, x0, y0, Gam, r, r0_param):                             # vortex intensity parameter
+def shu_vortex_function_param(x, y, x0, y0, r0_param):                             # vortex intensity parameter
+    Gam = 0.2
     r = np.sqrt((x-x0)**2+(y-y0)**2)
     omega=Gam*np.exp(-(r/r0_param)**2)
-    u_theta=r*omega
-    return u_theta
+    return omega
 
 def gaussian(x,y,a):
     # g = e^{-a(x^2+y^2)}

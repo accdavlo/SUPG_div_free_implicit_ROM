@@ -1233,7 +1233,7 @@ class DeCSpaceTimeSUPGSolver:
         self.CFL     = 0.1
         if self.FEM2D.FEM1Dx.degree>=5:
             self.set_CFL( 1./2./(2.*self.FEM2D.FEM1Dx.degree+1))
-        self.Nt_save = 35
+        self.Nt_save = 10
         self.Nt_max  = 1000000
         self.stab    = stab
         self.trick_second_der = trick_second_der
