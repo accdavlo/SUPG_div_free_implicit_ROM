@@ -366,6 +366,81 @@ class SmoothVortexTestCaseParam(LinearAcoustic2D):
         self.r0 = mu[1]
         self.coeff_exp = mu[2]
 
+class ShuVortexTestCaseParam(LinearAcoustic2D):
+    def __init__(self, basis_name="shu_vortex_param", pert_coeff=None, is_long=False, pert_type=None):
+        self.is_long = is_long
+        self.pert_type = pert_type
+        self.basis_name = basis_name
+ 
+        name = ("smaller_" if self.is_smaller else "") + f"{basis_name}_{'long' if is_long else 'short'}" + (f"_{pert_type}_perturbation" if pert_type else "")
+
+        T_fin = 100.0 if is_long else (0.35 if pert_type else 1.0)
+        super().__init__(name, pert_coeff, T_fin)
+
+    def define_geom(self):
+        if self.is_smaller:
+            self.geometry_name = "periodic_square"
+            self.BC = np.array([0, 0, 0, 0], dtype=np.int32)
+        else:
+            self.geometry_name = "square"
+            self.BC = np.array([1, 1, 1, 1], dtype=np.int32)
+        self.xL = np.array([0., 0.], dtype=np.float64)
+        self.xR = np.array([1., 1.], dtype=np.float64)
+        self._setup_geometry_folder()
+
+    def dirichlet_BC(self):
+        if self.pert_type == "opt":
+            self.dirichlet = {"all": self.vars}
+        else:
+            self.dirichlet = None
+
+    def IC(self):
+        x0, y0 = 0.5, 0.5 
+        p0 = lambda x, y: 1.0
+        u0 = lambda x, y, theta: shu_vortex_function_param(x, y, x0, y0, self.Gam, self.r, self.r0_param) * (-np.sin(theta))
+        v0 = lambda x, y, theta: shu_vortex_function_param(x, y, x0, y0, self.Gam, self.r, self.r0_param) * (np.cos(theta))
+
+
+        self.ics = {"u": u0, "v": v0, "p": p0}
+
+        if self.pert_type:
+            self.with_perturbation = True
+
+            if self.pert_type != "an":
+                self.steady_state_test = type(self)(is_long=True)
+
+            x0_p, y0_p = 0.4, 0.43
+            if self.is_smaller and self.pert_type != "an":
+                delta_u = lambda x, y: self.pert_coeff * pressure_perturbation_function(x, y, x0_p, y0_p)
+                delta_p = lambda x, y: 0.0
+            else:
+                delta_u = lambda x, y: 0.0
+                delta_p = lambda x, y: self.pert_coeff * pressure_perturbation_function(x, y, x0_p, y0_p)
+
+            delta_v = lambda x, y: 0.0
+            self.perturbation = {"u": delta_u, "v": delta_v, "p": delta_p}
+
+            if self.pert_type == "an":
+                # Re-evaluate an perturbations
+                d_p = lambda x, y: self.pert_coeff * pressure_perturbation_function(x, y, x0_p, y0_p)
+                self.ics["u"] = lambda x, y: u0(x, y)
+                self.ics["v"] = lambda x, y: v0(x, y)
+                self.ics["p"] = lambda x, y: p0(x, y) + d_p(x, y)
+                return self.ics
+            return self.perturbation
+        return self.ics
+
+    def generate_exact(self):
+        x0, y0 = 0.5, 0.5
+        u0 = lambda x, y, theta, t: shu_vortex_function_param(x, y, 0.5, 0.5, self.Gam, self.r, self.r0) * (-np.sin(theta))
+        v0 = lambda x, y, theta, t: shu_vortex_function_param(x, y, 0.5, 0.5, self.Gam, self.r, self.r0) * (np.cos(theta))
+
+        self.exact = {"u": u0, "v": v0, "p": lambda x, y, t: 1.0}
+        return self.exact
+
+    def set_parameters(self, mu):
+        self.r0 = mu[0]   
+
 
 class SourceVortexTestCase(LinearAcoustic2D):
     def __init__(self, basis_name="source_vortex", pert_coeff=None, is_long=False, pert_type=None, is_dirichlet=False):
@@ -688,6 +763,12 @@ def smooth_vortex_function_param(x, y, x0, y0, g, r0, coeff_exp):
     u = (r < r0)*2*Gam*np.exp(-coeff_exp/(2*(1-rho)**2))*np.sqrt(g/(r0*(1-rho)**3))
     return u
 
+def shu_vortex_function_param(x, y, x0, y0, Gam, r, r0_param):                             # vortex intensity parameter
+    r = np.sqrt((x-x0)**2+(y-y0)**2)
+    omega=Gam*np.exp(-(r/r0_param)**2)
+    u_theta=r*omega
+    return u_theta
+
 def gaussian(x,y,a):
     # g = e^{-a(x^2+y^2)}
     r2 = x**2+y**2
@@ -703,7 +784,7 @@ def hess_gaussian(x,y,a):
     r2 = x**2+y**2
     exp_f = np.exp(-a*r2)
     hess = np.array([[-1+2*a*x**2 , 2*a*x*y ],[2*a*x*y, -1+2*a*y**2]]) *2*a*exp_f
-    return hess 
+    return hess
 
 def laplace_gaussian(x,y,a):
     r2 = x**2+y**2
