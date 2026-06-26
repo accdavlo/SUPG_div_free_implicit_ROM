@@ -2045,7 +2045,7 @@ class ImplicitDec(ImplicitEuler):
         tic = time.time()
 
         #Define big matrices
-        A, B, L = self.build_whole_matrices(self.stab_coeff, self.geom.dx_min, dirichlet_BC)
+        _, B, L = self.build_whole_matrices(self.stab_coeff, self.geom.dx_min, dirichlet_BC)
         
         #Enfore Dirichlet conditions
         if dirichlet_BC is not None:
@@ -2213,10 +2213,15 @@ class ImplicitDec(ImplicitEuler):
                 for var in ["u","v"]:
                     L2[var][:] += all_stabs[var]
             
+            if dirichlet_BC is not None:
+                for bc_item in dirichlet_BC.keys():
+                    for var in dirichlet_BC[bc_item].vars:
+                        L2[var][0,dirichlet_BC[bc_item].indexes] =\
+                            dirichlet_BC[bc_item].dirichlet_vector[var]
+
             self.build_whole_q_vector(L2, vect_L2, 0)
 
             #Define RHS
-            super().build_whole_matrices(self.stab_coeff, self.FEM2D.geom.dx_min)
             beta = self.DeC.beta[m]
             vect_q = sparse.linalg.spsolve(-L/dt-beta*E, vect_L2[0,:]) 
 
