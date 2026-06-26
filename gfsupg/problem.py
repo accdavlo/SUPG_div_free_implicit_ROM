@@ -441,7 +441,9 @@ class ShuVortexTestCaseParam(LinearAcoustic2D):
         return self.exact
 
     def set_parameters(self, mu):
-        self.r0_param = mu[0]   
+        self.x0 = mu[0]
+        self.y0 = mu[1]
+        self.r0_param = mu[2]   
 
 
 class SourceVortexTestCase(LinearAcoustic2D):
