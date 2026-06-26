@@ -1765,12 +1765,21 @@ class ImplicitEuler(DeCSpaceTimeSUPGSolver):
         A_SU = a * dx * vstack([hstack([zero, zero, self.FEM2D.operator["DxI"]]), \
                        hstack([zero, zero, self.FEM2D.operator["DyI"]]),\
                        hstack([self.FEM2D.operator["DxI"], self.FEM2D.operator["DyI"], zero])])
-        Eps_CGFq = vstack([hstack([zero, zero, self.FEM2D.operator["IDx"]]), \
-                           hstack([zero, zero, self.FEM2D.operator["IDy"]]),\
-                           hstack([self.FEM2D.operator["IDx_tilde"], self.FEM2D.operator["IDy_tilde"], zero])])
-        Eps_SUGFq = a * dx * vstack([hstack([self.FEM2D.operator["DxDx_tilde"], self.FEM2D.operator["DxDy_tilde"], zero ]), \
-                                     hstack([self.FEM2D.operator["DyDx_tilde"], self.FEM2D.operator["DyDy_tilde"], zero ]),\
-                                     hstack([zero, zero, self.FEM2D.operator["DxDx"] + self.FEM2D.operator["DyDy"]])])
+        if self.GF:
+            Eps_CGFq = vstack([hstack([zero, zero, self.FEM2D.operator["IDx"]]), \
+                               hstack([zero, zero, self.FEM2D.operator["IDy"]]),\
+                               hstack([self.FEM2D.operator["IDx_tilde"], self.FEM2D.operator["IDy_tilde"], zero])])
+            Eps_SUGFq = a * dx * vstack([hstack([self.FEM2D.operator["DxDx_tilde"], self.FEM2D.operator["DxDy_tilde"], zero ]), \
+                                         hstack([self.FEM2D.operator["DyDx_tilde"], self.FEM2D.operator["DyDy_tilde"], zero ]),\
+                                         hstack([zero, zero, self.FEM2D.operator["DxDx"] + self.FEM2D.operator["DyDy"]])])
+        else:
+            Eps_CGFq = vstack([hstack([zero, zero, self.FEM2D.operator["IDx"]]), \
+                               hstack([zero, zero, self.FEM2D.operator["IDy"]]),\
+                               hstack([self.FEM2D.operator["IDx"], self.FEM2D.operator["IDy"], zero])])
+            Eps_SUGFq = a * dx * vstack([hstack([self.FEM2D.operator["DxDx"], self.FEM2D.operator["DxDy"], zero ]), \
+                                         hstack([self.FEM2D.operator["DyDx"], self.FEM2D.operator["DyDy"], zero ]),\
+                                         hstack([zero, zero, self.FEM2D.operator["DxDx"] + self.FEM2D.operator["DyDy"]])])
+
 
         if dirichlet_BC is not None:
             for bc_item in dirichlet_BC.keys():
