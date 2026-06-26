@@ -66,7 +66,7 @@ mu_offline = [[9.81, 0.45, coeff_exp_] for coeff_exp_ in coeff_exp]
 #r_offline = np.array([0.05,0.1,0.2,0.25])
 #mu_offline = [[x0, y0, r0] for x0 in x0_offline for y0 in y0_offline for r0 in r_offline]
 
-MOR_instance = MOR(problem, FEM2D, dec, tol=tols[0], GF=True, stab="SUPG")
+MOR_instance = MOR(problem, FEM2D, dec, solver, tol=tols[0], GF=True, stab="SUPG")
 # Perform the offline phase 
 MOR_instance.run_offline(mu_offline, load_sol=load_sol)
 

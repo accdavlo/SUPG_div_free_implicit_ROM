@@ -13,13 +13,12 @@ class MOR:
     and DeC iterations in time.
     """
 
-    def __init__(self, problem, FEM2D, DeC, tol=1e-5, GF=True, stab="SUPG"):
+    def __init__(self, problem, FEM2D, DeC, solver, tol=1e-5, GF=True, stab="SUPG"):
         self.FEM2D   = FEM2D
         self.DeC     = DeC
         self.problem = problem
         
-        self.solver = ImplicitEuler(self.problem, self.FEM2D, self.DeC, GF, stab, trick_second_der=False)
-        self.solver.set_CFL(100.0)
+        self.solver = solver
 
         self.tol = tol
         if self.solver.GF:
