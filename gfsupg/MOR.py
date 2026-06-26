@@ -1,6 +1,6 @@
 import numpy as np
 from gfsupg.solver import CartesianGeometry, FiniteElement1D, Scipy2DFEM
-from gfsupg.solver import DeC, DeCSpaceTimeSUPGSolver
+from gfsupg.solver import DeC, DeCSpaceTimeSUPGSolver, ImplicitEuler, ImplicitDec
 from gfsupg.problem import *
 from gfsupg.plotting import *
 
@@ -18,7 +18,8 @@ class MOR:
         self.DeC     = DeC
         self.problem = problem
         
-        self.solver = DeCSpaceTimeSUPGSolver(self.problem, self.FEM2D, self.DeC, GF, stab, trick_second_der=False)
+        self.solver = ImplicitEuler(self.problem, self.FEM2D, self.DeC, GF, stab, trick_second_der=False)
+        self.solver.set_CFL(100.0)
 
         self.tol = tol
         if self.solver.GF:
@@ -67,13 +68,11 @@ class MOR:
         # Check tolerance to assemble reduced basis
         print("Computing the reduced basis")
 
-
-
-        self.FEM2D.build_matrices_MOR(self.basis, self.n_rb)
-
     def truncate_basis(self, n_rb=None, tol=None):
         self.n_rb = dict()
         self.basis = dict()
+        if tol is not None:
+            self.tol = tol
         if n_rb is None:
             for var in self.problem.vars:
                 sum_SVD_curr = np.sum(self.Sigma_svd[var])
@@ -90,6 +89,7 @@ class MOR:
         print("Number of reduced basis for u:", self.n_rb["u"])
         print("Number of reduced basis for v:", self.n_rb["v"])
         print("Number of reduced basis for p:", self.n_rb["p"])
+        self.FEM2D.build_matrices_MOR(self.basis, self.n_rb)
 
 
     def run_online(self, params, compute_residuals=False):
