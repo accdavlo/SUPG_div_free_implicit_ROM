@@ -17,14 +17,16 @@ dec = DeC((order+1)//2,order,"gaussLobatto")
 Nx = 80
 Ny = 80
 Ns = np.array([Nx,Ny], dtype=np.int32)
-problem = SmoothVortexTestCaseParam(is_long=True)
+# problem = SmoothVortexTestCaseParam(is_long=True)
 #problem = ObliqueTestCase()
+problem = ShuVortexTestCaseParam()
 geom = CartesianGeometry(problem.xL,problem.xR, Ns, problem.geometry_folder, BC=problem.BC)
 FEM2D = Scipy2DFEM(geom, FEM1Dx, FEM1Dy, folder=problem.folderName)
 
 # Compute the FOM solution for the current 'online parameters'
-online_params = [9.81, 0.45, 2.5]
+# online_params = [9.81, 0.45, 2.5]
 #online_params = []
+online_params = [0.47,0.48, 0.21]
 #problem.set_final_time(1.0)
 problem.set_parameters(online_params)
 solver = DeCSpaceTimeSUPGSolver(problem, FEM2D, dec, GF=True, stab="SUPG", trick_second_der=False)
@@ -35,7 +37,7 @@ print("Relative Error FOM p:", error[2])
 print("")
 
 # Perform a convergence of the MOR solver (i.e. test with different tolerance values)
-load_sol = True
+load_sol = False
 compute_residuals = False
 tols = np.array([1e-4, 1e-5, 1e-6, 1e-7, 1e-8, 1e-9, 1e-10])
 err_tols = dict()
@@ -50,7 +52,7 @@ for i, tol in enumerate(tols):
 
     # Define the parameters to compute our snapshots
     coeff_exp = np.arange(1,11,1)
-    mu_offline = [[9.81, 0.45, coeff_exp_] for coeff_exp_ in coeff_exp]
+    mu_offline = [[x0, y0, r0] for x0 in np.linspace(0.35,0.65,6) for y0 in np.linspace(0.35,0.65,6) for r0 in np.linspace(0.15,0.25,6)]
     #mu_offline = [[]]
 
     # Perform the offline phase 
