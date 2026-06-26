@@ -14,32 +14,38 @@ FEM1Dx = FiniteElement1D(order-1,"gaussLobatto","gaussLobatto")
 FEM1Dy = FiniteElement1D(order-1,"gaussLobatto","gaussLobatto")
 dec = DeC((order+1)//2,order,"gaussLobatto")
 
-Nx = 80
-Ny = 80
+Nx = 20
+Ny = 20
 Ns = np.array([Nx,Ny], dtype=np.int32)
-#problem = SmoothVortexTestCaseParam(is_long=True)
+problem = SmoothVortexTestCaseParam(is_long=True)
+problem.T_fin = 100.
 #problem = ObliqueTestCase()
-problem = ShuVortexTestCaseParam()
+# problem = ShuVortexTestCaseParam()
 geom = CartesianGeometry(problem.xL,problem.xR, Ns, problem.geometry_folder, BC=problem.BC)
 FEM2D = Scipy2DFEM(geom, FEM1Dx, FEM1Dy, folder=problem.folderName)
 
 # Compute the FOM solution for the current 'online parameters'
-#online_params = [9.81, 0.45, 2.5]
+online_params = [9.81, 0.45, 2.5]
 #online_params = []
-#problem.set_final_time(1.0)
-online_params = [0.47, 0.48, 0.21]
+# problem.set_final_time(1.0)
+# online_params = [0.47, 0.48, 0.21]
 problem.set_parameters(online_params)
-solver = DeCSpaceTimeSUPGSolver(problem, FEM2D, dec, GF=True, stab="SUPG", trick_second_der=False)
+solver = DeCSpaceTimeSUPGSolver(problem, FEM2D, dec, GF=False, stab="SUPG", trick_second_der=False)
 qGF, ttGF, comp_timeGF, error, _  = solver.solve(save_sol=True, with_error=True)
 print("Relative Error FOM u:", error[0])
 print("Relative Error FOM v:", error[1])
 print("Relative Error FOM p:", error[2])
 print("")
 
+# Plot one solution
+
+plot_all_sols(problem, FEM2D, qGF, -1, ttGF[-1], levels=21)
+plt.show()
+
 # Perform a convergence of the MOR solver (i.e. test with different tolerance values)
 load_sol = True
 compute_residuals = False
-tols = np.array([1e-1, 1e-2, 1e-3, 1e-4, 1e-5])
+tols = np.array([1e-1])#, 1e-2, 1e-3, 1e-4, 1e-5])
 err_tols = dict()
 n_rb_tols = dict()
 err_vs_FOM_tols = dict()
@@ -47,21 +53,26 @@ for var in problem.vars:
     err_tols[var] = np.zeros_like(tols)
     n_rb_tols[var] = np.zeros_like(tols)
     err_vs_FOM_tols[var] = np.zeros_like(tols)
+
+
+# Define the parameters to compute our snapshots
+coeff_exp = np.arange(1,11,1)
+mu_offline = [[9.81, 0.45, coeff_exp_] for coeff_exp_ in coeff_exp]
+#mu_offline = [[]]
+# mu_offline = [[x0, y0, r0] for x0 in np.linspace(0.35,0.65,6) for y0 in np.linspace(0.35,0.65,6) for r0 in np.linspace(0.15,0.25,6)]
+#x0_offline = np.array([0.3,0.4,0.5,0.6,0.7])
+#y0_offline = np.array([0.3,0.4,0.5,0.6,0.7])
+#r_offline = np.array([0.05,0.1,0.2,0.25])
+#mu_offline = [[x0, y0, r0] for x0 in x0_offline for y0 in y0_offline for r0 in r_offline]
+
+MOR_instance = MOR(problem, FEM2D, dec, tol=tols[0], GF=False, stab="SUPG")
+# Perform the offline phase 
+MOR_instance.run_offline(mu_offline, load_sol=load_sol)
+
 for i, tol in enumerate(tols):
-    MOR_instance = MOR(problem, FEM2D, dec, tol=tol, GF=True, stab="SUPG")
+    MOR_instance.truncate_basis(tol=tol)
 
-    # Define the parameters to compute our snapshots
-    #coeff_exp = np.arange(1,11,1)
-    #mu_offline = [[9.81, 0.45, coeff_exp_] for coeff_exp_ in coeff_exp]
-    #mu_offline = [[]]
-    mu_offline = [[x0, y0, r0] for x0 in np.linspace(0.35,0.65,6) for y0 in np.linspace(0.35,0.65,6) for r0 in np.linspace(0.15,0.25,6)]
-    #x0_offline = np.array([0.3,0.4,0.5,0.6,0.7])
-    #y0_offline = np.array([0.3,0.4,0.5,0.6,0.7])
-    #r_offline = np.array([0.05,0.1,0.2,0.25])
-    #mu_offline = [[x0, y0, r0] for x0 in x0_offline for y0 in y0_offline for r0 in r_offline]
 
-    # Perform the offline phase 
-    MOR_instance.run_offline(mu_offline, load_sol=load_sol)
     n_rb_tols["u"][i] = MOR_instance.n_rb["u"]
     n_rb_tols["v"][i] = MOR_instance.n_rb["v"]
     n_rb_tols["p"][i] = MOR_instance.n_rb["p"]
@@ -149,8 +160,12 @@ fig, axs = plt.subplots(1,3, figsize=(15,4))
 plot_sol(FEM2D, (MOR_instance.basis["u"] @ MOR_instance.qGF_MOR["u"][it,:])**2 + (MOR_instance.basis["v"] @ MOR_instance.qGF_MOR["v"][it,:])**2 , axs[0],fig, levels=21)
 plot_sol(FEM2D, qGF["u"][it,:]**2 + qGF["v"][it,:]**2, axs[1], fig, levels=21)
 plot_sol(FEM2D, qGF["u"][0,:]**2 + qGF["v"][0,:]**2, axs[2], fig, levels=21)
-axs[0].set_title("Global Flux: MOR") 
-axs[1].set_title("Global Flux: FOM")
+if solver.GF:
+    axs[0].set_title("Global Flux: MOR") 
+    axs[1].set_title("Global Flux: FOM")
+else:
+    axs[0].set_title("Non Global Flux: MOR") 
+    axs[1].set_title("Non Global Flux: FOM")
 axs[2].set_title("Exact Solution")
 plt.tight_layout()
 plt.show()

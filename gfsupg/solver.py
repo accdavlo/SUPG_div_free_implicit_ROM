@@ -1781,7 +1781,9 @@ class DeCSpaceTimeSUPGSolver:
                 if self.stab == "SUPG":
                     get_stabilization = SUPG_GF_stabilization_MOR
             else:
-                raise NotImplementedError("MOR classical SUPG sitll not implemented")
+                get_residual = define_residuals_MOR
+                if self.stab == "SUPG":
+                    get_stabilization = SUPG_stabilization_MOR
         else:
             raise NotImplementedError("Equations %s not implemented in solve in DeCSpaceTimeSolver"%self.problem.equations)
 
@@ -2001,6 +2003,27 @@ def define_residuals(galer_residuals, q_prev,all_sources,m,op,c,dx_min , al, the
 
     return galer_residuals
 
+def define_residuals_MOR(galer_residuals, q_prev,all_sources,m,op,c,dx_min , al, theta_m, dt):
+
+    """Assemble Galerkin residuals (no stabilization) 
+    for the standard (non-GF) formulation."""
+
+    galer_residuals["u"][:] = op["u"]["u"]["mass"]@(q_prev["u"][m,:]-q_prev["u"][0,:])/dt\
+        +c*   op["u"]["p"]["IDx"] @(theta_m @ q_prev["p"] )\
+        +     op["u"]["u"]["mass"]@all_sources["u"]
+
+    galer_residuals["v"][:] = op["v"]["v"]["mass"]@(q_prev["v"][m,:]-q_prev["v"][0,:])/dt\
+        +c  * op["v"]["p"]["IDy"] @(theta_m @ q_prev["p"] )\
+        +     op["v"]["v"]["mass"]@all_sources["v"]
+        
+    galer_residuals["p"][:] = op["p"]["p"]["mass"]@(q_prev["p"][m,:]-q_prev["p"][0,:])/dt\
+        +c*op["p"]["u"]["IDx"]@(theta_m @ q_prev["u"] )\
+        +c*op["p"]["v"]["IDy"]@(theta_m @ q_prev["v"] )\
+        + op["p"]["p"]["mass"]@all_sources["p"]
+
+    return galer_residuals
+
+
 def define_GF_residuals(galer_residuals, q_prev,all_sources,m,op,c,dx_min , al, theta_m, dt):
 
     """Assemble Galerkin residuals for the global-flux (GF) formulation."""
@@ -2063,6 +2086,34 @@ def SUPG_stabilization(all_stabs, q_prev,all_sources,m,op,c,dx_min , al, theta_m
         +c*al*dx_min*op["DyDy2"]@(theta_m@q_prev["p"])\
         +  al*dx_min*op["DxI"]@all_sources["u"]\
         +  al*dx_min*op["DyI"]@all_sources["v"]
+    
+    return all_stabs
+
+
+def SUPG_stabilization_MOR(all_stabs, q_prev,all_sources,m,op,c,dx_min , al, theta_m, dt):
+          
+    """Compute SUPG stabilization contributions for the standard formulation."""
+
+    all_stabs["u"][:] = \
+            al*dx_min*op["u"]["p"]["DxI"] @(q_prev["p"][m,:]-q_prev["p"][0,:])/dt\
+        +c*al*dx_min*op["u"]["u"]["DxDx2"]@(theta_m@q_prev["u"])\
+        +c*al*dx_min*op["u"]["v"]["DxDy"]@(theta_m@q_prev["v"])\
+        +  al*dx_min*op["u"]["p"]["DxI"] @all_sources["p"]
+
+    all_stabs["v"][:] = \
+            al*dx_min*op["v"]["p"]["DyI"] @(q_prev["p"][m,:]-q_prev["p"][0,:])/dt\
+        +c*al*dx_min*op["v"]["u"]["DyDx"]@(theta_m@q_prev["u"])\
+        +c*al*dx_min*op["v"]["v"]["DyDy2"]@(theta_m@q_prev["v"])\
+        +  al*dx_min*op["v"]["p"]["DyI"] @all_sources["p"]
+    
+    
+    all_stabs["p"][:] = \
+           al*dx_min*op["p"]["u"]["DxI"] @(q_prev["u"][m,:]-q_prev["u"][0,:])/dt\
+        +  al*dx_min*op["p"]["v"]["DyI"] @(q_prev["v"][m,:]-q_prev["v"][0,:])/dt\
+        +c*al*dx_min*op["p"]["p"]["DxDx2"]@(theta_m@q_prev["p"])\
+        +c*al*dx_min*op["p"]["p"]["DyDy2"]@(theta_m@q_prev["p"])\
+        +  al*dx_min*op["p"]["u"]["DxI"]@all_sources["u"]\
+        +  al*dx_min*op["p"]["v"]["DyI"]@all_sources["v"]
     
     return all_stabs
 
