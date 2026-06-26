@@ -1,5 +1,5 @@
 import numpy as np
-from gfsupg.solver import CartesianGeometry, FiniteElement1D
+from gfsupg.solver import CartesianGeometry, FiniteElement1D, ImplicitDec
 from gfsupg.solver import Scipy2DFEM, DeC, DeCSpaceTimeSUPGSolver
 from gfsupg.problem import *
 from gfsupg.plotting import *
@@ -8,18 +8,18 @@ import csv
 
 import matplotlib.pyplot as plt
 
-problem = MovingSourceTestCase() 
+problem = ObliqueTestCase() 
 
 
 stab ="SUPG"#"OSS" #"SUPG" #"OSS" #
 
-GFs = [True, False]
-GF_names = ["GF", "noGF"]
+GFs = [True]#, False]
+GF_names = ["GF"]# "noGF"]
 save_solutions = False
 save_final_solution = True
 save_IC = True
 
-mesh_sizes_one = [10,20,40,80]#,160,320]#[10,20]# [20, 30, 40, 80]#, 160, 320]
+mesh_sizes_one = [20,40,80,160] #[10,20,40,80]#,160,320]#[10,20]# [20, 30, 40, 80]#, 160, 320]
 
 for order in range(2,8):
 
@@ -57,7 +57,8 @@ for order in range(2,8):
                 method_name = stab
                 error_name = "errors_"+stab
 
-            solver = DeCSpaceTimeSUPGSolver(problem, FEM2D, dec, GF=GF, stab=stab)
+            # solver = DeCSpaceTimeSUPGSolver(problem, FEM2D, dec, GF=GF, stab=stab)
+            solver = ImplicitDec(problem, FEM2D, dec, GF = GF, stab = stab, trick_second_der=False)
 
             if GF:
                 disc_div = FEM2D.compute_discrete_divergence(solver.ic_vect)
@@ -115,7 +116,7 @@ for order in range(2,8):
 
             if iN>0:
                 for k in range(problem.n_eq):
-                    orders[iGF, iN, k] = np.log(errors[iGF, iN,k]/errors[iGF, iN-1,k])/np.log(mesh_sizes[iN-1]/mesh_sizes[iN])
+                    orders[iGF, iN, k] = np.log(errors[iGF, iN,k]/(errors[iGF, iN-1,k] + 1e-15))/np.log(mesh_sizes[iN-1]/mesh_sizes[iN])
                     orders_vertex[iGF, iN, k] = np.log(errors_vertex[iGF, iN,k]/errors_vertex[iGF, iN-1,k])/np.log(mesh_sizes[iN-1]/mesh_sizes[iN])
                 orders_div_ic[iGF, iN] = np.log(errors_div_ic[iGF, iN]\
                                         /errors_div_ic[iGF, iN-1])/np.log(mesh_sizes[iN-1]/mesh_sizes[iN])
@@ -198,6 +199,8 @@ for order in range(2,8):
 
     experimental_order = np.mean(orders_div_ic[0,1:])
     guess_order = np.ceil(np.mean(orders_div_ic[0,1:]))
+    if  np.isnan(guess_order):
+        guess_order = 1
 
     plt.figure()
     iGF = 0
