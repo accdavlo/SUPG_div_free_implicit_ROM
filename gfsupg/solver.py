@@ -1876,6 +1876,8 @@ class ImplicitEuler(DeCSpaceTimeSUPGSolver):
 
         size_array = sum(np.array([q_prev[k].shape[1] for k in self.problem.vars]))            
         vect_q = np.empty((q_now['u'].shape[0], size_array))
+        vect_source = np.empty((1, size_array))
+        vect_source_all = np.empty((q_now['u'].shape[0], size_array))
 
         for var in self.problem.vars:
             q_save[var][it_save,:] = q_now[var][-1,:]
@@ -1949,7 +1951,7 @@ class ImplicitEuler(DeCSpaceTimeSUPGSolver):
             # Compute L2 high order space time discretization of the residual
             # And update of q_now
             self.implicitEuler_one_step(dt, A, B, \
-                         q_prev, vect_q, q_now, sub_sources = sub_sources,\
+                         q_prev, vect_q, q_now, vect_source, vect_source_all, sub_sources = sub_sources,\
                          coriolis_not_uni = cor_nu,\
                          dirichlet_BC=dirichlet_BC,
                          curl_stab_flag = curl_stab_flag)
@@ -2017,7 +2019,7 @@ class ImplicitEuler(DeCSpaceTimeSUPGSolver):
         return q_save, tt_save, comp_time, error, error_vertex
 
     def implicitEuler_one_step(self, dt, A, B, q_prev, vect_q, q_now,\
-                           sub_sources, coriolis_not_uni, \
+                           vect_source, vect_sources_all, sub_sources, coriolis_not_uni, \
                            dirichlet_BC = None, curl_stab_flag=False):
         """Perform one implicit Euler correction sweep over all sub-nodes.
     
@@ -2033,11 +2035,18 @@ class ImplicitEuler(DeCSpaceTimeSUPGSolver):
         fric = self.problem.friction
         stab_curl_coeff = self.stab_curl_coeff
 
-        self.build_whole_q_vector(q_prev, vect_q)
+        all_sources   = dict()
+        for var in self.problem.vars:
+            all_sources[var] = np.empty(q_prev[var][0,:].shape)
 
+        self.build_whole_q_vector(q_prev, vect_q)
+        self.build_whole_q_vector(sub_sources, vect_sources_all)
+        S = self.define_sources_implicit(vect_source, vect_sources_all, self.DeC.theta[0,:], cor, coriolis_not_uni, fric)
+        
+        
         #Define RHS
-        RHS = A @ vect_q[0,:]
-        vect_q[1,:] = sparse.linalg.spsolve(A+dt*B, RHS) 
+        RHS = A @ vect_q[0,:] + dt*vect_source.squeeze()
+        vect_q[1,:] = sparse.linalg.spsolve(A+dt*(B+S), RHS) 
         #Just out of curiosity: we could try different solvers. 
         # spsolve is a LU solver, so not necessarily the best for big systems...
         #vect_q[1,:] = sparse.linalg.bicgstab(A+dt*B, RHS) 
@@ -2055,6 +2064,24 @@ class ImplicitEuler(DeCSpaceTimeSUPGSolver):
                     for var in dirichlet_BC[bc_item].vars:
                         q_now[var][m,dirichlet_BC[bc_item].indexes] =\
                             dirichlet_BC[bc_item].dirichlet_vector[var]
+
+    def define_sources_implicit(self, all_sources, sub_sources, theta_m, cor, coriolis_not_uni, fric):
+        """Build momentum and pressure source terms in semi-discrete form.
+    
+        Signs follow the convention used in `DeC_one_step`, where the assembled
+        source terms are moved to the left-hand side of the residual equations.
+        """
+        S = sparse.csr_matrix((self.FEM2D.n_dof_tot*3,self.FEM2D.n_dof_tot*3))
+        zero = sparse.csr_matrix((self.FEM2D.n_dof_tot,self.FEM2D.n_dof_tot))
+    
+        S = vstack([hstack([fric*sp.eye(self.FEM2D.n_dof_tot), -cor*sp.eye(self.FEM2D.n_dof_tot)-sp.diags(coriolis_not_uni), zero]), \
+                      hstack([cor*sp.eye(self.FEM2D.n_dof_tot)+sp.diags(coriolis_not_uni), fric*sp.eye(self.FEM2D.n_dof_tot), zero]),\
+                      hstack([zero, zero, zero])])
+        
+    
+        all_sources[:] = -theta_m@sub_sources
+        return S
+
 
 class ImplicitDec(ImplicitEuler):
     def build_whole_q_vector(self, q:dict, vect_q:np.ndarray, m:int)->None:
