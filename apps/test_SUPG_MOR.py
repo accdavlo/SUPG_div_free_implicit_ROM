@@ -79,6 +79,7 @@ for var in problem.vars:
 
 # Online
 problem.set_parameters(online_params)
+solver.set_ic()
 
 tic = time.time()
 qGF, ttGF, comp_timeGF, error, _  = solver.solve(save_sol=True, with_error=True)
@@ -99,6 +100,9 @@ for i, tol in enumerate(tols):
     # solver.set_CFL(6.0)
     for var in MOR_instance.vars:
         n_rb_tols[var][i] = MOR_instance.n_rb[var]
+
+    problem.set_parameters(online_params)
+    solver.set_ic()
 
     # Perform the online phase
     tic = time.time()
