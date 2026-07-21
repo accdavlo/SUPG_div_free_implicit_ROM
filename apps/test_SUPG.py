@@ -1,24 +1,24 @@
 import numpy as np
 from gfsupg.solver import CartesianGeometry, FiniteElement1D, Scipy2DFEM
-from gfsupg.solver import DeC, DeCSpaceTimeSUPGSolver
+from gfsupg.solver import DeC, DeCSpaceTimeSUPGSolver, ImplicitEuler
 from gfsupg.problem import *
 from gfsupg.plotting import *
 
 import matplotlib.pyplot as plt
 
 
-order=2
+order=3
 
 FEM1Dx = FiniteElement1D(order-1,"gaussLobatto","gaussLobatto")
 FEM1Dy = FiniteElement1D(order-1,"gaussLobatto","gaussLobatto")
 dec = DeC((order+1)//2,order,"gaussLobatto")
 
 
-# problem = SmoothVortexTestCase(is_long=True)#, pert_coeff=1e-3, pert_type="an") #LinearAdvection("smooth_vortex_long")
-problem = CoriolisVortexTestCase(is_long=True)#, pert_coeff=1e-3, pert_type="an") #LinearAdvection("smooth_vortex_long")
+problem = SmoothVortexTestCase(is_long=True, is_smaller=True)#, pert_coeff=1e-3, pert_type="an") #LinearAdvection("smooth_vortex_long")
+# problem = ObliqueTestCase()#, pert_coeff=1e-3, pert_type="an") #LinearAdvection("smooth_vortex_long")
 
 
-Ns = np.array([10,10], dtype=np.int32)
+Ns = np.array([30,30], dtype=np.int32)
 
 geom = CartesianGeometry(problem.xL,problem.xR, Ns, problem.geometry_folder, BC=problem.BC)
 
@@ -26,7 +26,8 @@ FEM2D = Scipy2DFEM(geom,FEM1Dx, FEM1Dy, folder=problem.folderName)
 
 
 print("Computing the classical SUPG solution")
-solver = DeCSpaceTimeSUPGSolver(problem, FEM2D, dec, GF = False, stab = "SUPG", trick_second_der=False)
+# solver = DeCSpaceTimeSUPGSolver(problem, FEM2D, dec, GF = False, stab = "SUPG", trick_second_der=False)
+solver = ImplicitEuler(problem, FEM2D, dec, GF = False, stab = "SUPG", trick_second_der=False)
 
 q, tt, comp_time, _ , _  = solver.solve( save_sol = True)
 for it in [0,10,20,29, len(tt)-1]:
