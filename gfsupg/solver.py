@@ -2706,7 +2706,7 @@ class ImplicitDec(ImplicitEuler):
         Builds a whole vector stacking along dimension 0 the arrays in q.
         """
         curr_i = 0
-        for k in self.problem.vars:
+        for k in q:
             size_q = q[k].shape[1]
             vect_q[0, curr_i:curr_i+size_q] = q[k][m, :]
             curr_i += size_q
@@ -2718,7 +2718,7 @@ class ImplicitDec(ImplicitEuler):
         It supposes that vect_q is just q stacked along dimension 0.
         """
         curr_i = 0
-        for k in self.problem.vars:
+        for k in q:
             size_q = q[k].shape[1]
             q[k][m,:] = vect_q[curr_i:curr_i+size_q]
             curr_i += size_q
@@ -3107,7 +3107,7 @@ class ImplicitDec(ImplicitEuler):
         t_save  = 0.
         it_save = 0
         L2 = dict()
-        for var in self.problem.vars: # ("u", "v", "p")
+        for var in ROM.vars: # ("u", "v", "p")
             L2[var] = np.zeros(self.FEM2D.n_dof_rb[var])
             q_save[var] = np.zeros((self.Nt_save, self.FEM2D.n_dof_rb[var]))
         tt_save = np.zeros(self.Nt_save)
@@ -3116,13 +3116,13 @@ class ImplicitDec(ImplicitEuler):
         q_now  = dict()
         q      = dict()
         ic_ROM = ROM.project_onto_ROM(self.ic_vect)
-        for var in self.problem.vars:
+        for var in ROM.vars:
             q_prev[var] = np.zeros((self.DeC.n_subNodes, self.FEM2D.n_dof_rb[var]))
             q_now[var]  = np.zeros((self.DeC.n_subNodes, self.FEM2D.n_dof_rb[var]))
             for i in range(self.DeC.n_subNodes):
                 q_now[var][i,:] = ic_ROM[var]
 
-        for var in self.problem.vars:
+        for var in ROM.vars:
             q_save[var][it_save,:] = q_now[var][-1,:]
         tt_save[it_save] = t
 
@@ -3145,7 +3145,7 @@ class ImplicitDec(ImplicitEuler):
             raise NotImplementedError("Not implemented boundary condition for MOR solver")
 
         sub_sources = dict()
-        for ivar, var in enumerate(self.problem.vars):
+        for ivar, var in enumerate(ROM.vars):
             sub_sources[var] = np.zeros_like(q_now[var])
 
 
@@ -3156,25 +3156,32 @@ class ImplicitDec(ImplicitEuler):
             c = self.problem.c
 
             # Initialize variables
-            for ivar, var in enumerate(self.problem.vars):
+            for ivar, var in enumerate(ROM.vars):
                 q[var] = q_now[var][-1,:]
                 for i in range(self.DeC.M_sub):
                     q_now[var][i,:] = q_now[var][-1,:] # previous timestep last update
-                if self.problem.source is not None:
-                    for i in range(self.DeC.M_sub+1):
-                        sub_sources[var][i,:] = ROM.basis[var].T @ self.FEM2D.evaluate_function(lambda x,y: self.problem.source[var](x,y,t+dt*self.DeC.beta[i]))
+            if self.problem.source is not None:
+                for i in range(self.DeC.M_sub+1):
+                    for var in self.problem.vars:
+                        source_FOM[var] = self.FEM2D.evaluate_function(lambda x,y: self.problem.source[var](x,y,t+dt*self.DeC.beta[i]))
 
-            print("Iteration %07d, time %1.5f, max vars %1.3f  %1.3f  %1.3f ,  min vars %1.3f  %1.3f  %1.3f "%(it,t,\
-                    np.max(q["u"]),np.max(q["v"]),np.max(q["p"]),\
-                    np.min(q["u"]),np.min(q["v"]),np.min(q["p"])  ) , end="\r")
+                    source = ROM.project_onto_ROM(source_FOM)
+                    for var in ROM.vars:
+                        sub_sources[var][i,:] = source[var]
+            
+            # Print everything 
+            max_str = "  ".join(f"{np.max(q[k]):1.3f}" for k in q)
+            min_str = "  ".join(f"{np.min(q[k]):1.3f}" for k in q)
+            print(f"Iteration {it:07d}, time {t:1.5f}, max vars {max_str} ,  min vars {min_str}", end="\r")
 
             for k in range(self.DeC.n_iter):
                 # Update variables
-                for var in self.problem.vars:
+                for var in ROM.vars:
                     q_prev[var][:,:] = q_now[var][:,:]
 
                 # Compute L2 high order space time discretization of the residual
                 # And update of q_now
+                # STILL EXPLICIT ROM!
                 DeC_one_step_MOR(ROM,self.problem, self.DeC, self.FEM2D, dt, al,\
                                  self.stab_curl_coeff, q_prev, L2, q_now, sub_sources = sub_sources,\
                                  coriolis_not_uni = cor_nu,\
@@ -3184,7 +3191,7 @@ class ImplicitDec(ImplicitEuler):
                                  dirichlet_BC=None,
                                  curl_stab_flag = curl_stab_flag)
             
-            for var in self.problem.vars:
+            for var in ROM.vars:
                 q[var] = q_now[var][-1,:]
 
             it+=1
@@ -3193,7 +3200,7 @@ class ImplicitDec(ImplicitEuler):
             if t_save > dt_save:
                 it_save+=1
                 t_save = 0.
-                for var in self.problem.vars:
+                for var in ROM.vars:
                     q_save[var][it_save,:] = q_now[var][-1,:]
                 tt_save[it_save] = t
 
@@ -3205,13 +3212,14 @@ class ImplicitDec(ImplicitEuler):
         # Final step to save
         it_save+=1
         Nt_save = it_save
-        for var in self.problem.vars:
+        for var in ROM.vars:
             q_save[var][it_save,:] = q_now[var][-1,:]
             q_save[var] = q_save[var][:Nt_save+1,:]
         tt_save[it_save] = t
         tt_save = tt_save[:Nt_save+1] 
         comp_time = time.time() - tic 
         print("Simulation over in %1.2f seconds"%comp_time)
+
 
 
         if (with_error or with_error_vertex) and self.problem.exact is not None:
@@ -3221,19 +3229,16 @@ class ImplicitDec(ImplicitEuler):
                     continue
                 # Computing error
                 dt_tmp = (tt_save[it_save]- tt_save[it_save-1])/self.problem.T_fin
-                for ivar, var in enumerate(self.problem.vars):
-                    if with_error:
-                        ex = self.FEM2D.evaluate_function(lambda x,y: self.problem.exact[var](x,y,t))
-                        error[ivar] += np.linalg.norm(ROM.basis[var] @ q_save[var][it_save,:]-ex)/(np.linalg.norm(ex) + 1e-10)*dt_tmp
-                    if with_error_vertex:
-                        #ex = self.FEM2D.evaluate_function_vertex(lambda x,y: self.problem.exact[var](x,y,t))
-                        #sol_vertex = self.FEM2D.from_vector_to_vertex(q_save[var][it_save,:])
-                        #error_vertex[ivar] += np.linalg.norm(sol_vertex-ex)/np.sqrt(len(ex))*dt_tmp
-                        pass
+                if with_error:
+                    reconstruct = ROM.reconstruct_from_ROM(q_now)
+                    for ivar, var in enumerate(self.problem.vars):
+                        ex = self.FEM2D.evaluate_function(lambda x,y: self. problem.exact[var](x,y,t))
+                        error[ivar] += np.linalg.norm(reconstruct[var][-1,:]-ex)/(np.linalg.norm(ex) + 1e-10)*dt_tmp
+
 
         if save_sol is not None:
             q_final = dict()
-            for var in self.problem.vars:
+            for var in ROM.vars:
                 q_final[var] = q_save[var][-1]
 
             sol_to_save = [q_final, tt_save[-1], comp_time, error, error_vertex ]
@@ -3245,6 +3250,7 @@ class ImplicitDec(ImplicitEuler):
         
         
         print("")
+
         return q_save, tt_save, comp_time, error, error_vertex
 
 def define_sources(all_sources, q_prev, sub_sources, theta_m, cor, coriolis_not_uni, fric):
