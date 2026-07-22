@@ -240,7 +240,7 @@ class ImplicitEuler(DeCSpaceTimeSUPGSolver):
 
         #Define big matrices
         A, B = self.build_whole_matrices(self.stab_coeff, self.geom.dx_min, dirichlet_BC)
-        S = self.define_matrix_sources_implicit(self.problem.coriolis, cor_nu, self.problem.friction)
+        S = self.define_matrix_sources_implicit(self.problem.coriolis, cor_nu, self.problem.friction, dirichlet_BC)
         vect_source = np.empty((1, size_array))
         vect_source_all = np.empty((q_now['u'].shape[0], size_array))
 
@@ -593,7 +593,7 @@ class ImplicitEuler(DeCSpaceTimeSUPGSolver):
                         q_now[var][m,dirichlet_BC[bc_item].indexes] =\
                             dirichlet_BC[bc_item].dirichlet_vector[var]
 
-    def define_matrix_sources_implicit(self, cor, coriolis_not_uni, fric):
+    def define_matrix_sources_implicit(self, cor, coriolis_not_uni, fric, dirichlet_BC = None):
         """Build momentum and pressure source terms in semi-discrete form.
     
         Signs follow the convention used in `DeC_one_step`, where the assembled
@@ -606,6 +606,12 @@ class ImplicitEuler(DeCSpaceTimeSUPGSolver):
                       hstack([cor*sp.eye(self.FEM2D.n_dof_tot)+sp.diags(coriolis_not_uni), fric*sp.eye(self.FEM2D.n_dof_tot), zero]),\
                       hstack([zero, zero, zero])])
         
+        if dirichlet_BC is not None:
+            for bc_item in dirichlet_BC.keys():
+                    for i in dirichlet_BC[bc_item].indexes:
+                        S = put_zero_row_in_coo(S, i)
+                        S = put_zero_row_in_coo(S, i + self.FEM2D.n_dof_tot)
+                        S = put_zero_row_in_coo(S, i + 2*self.FEM2D.n_dof_tot)
     
         return S
 
