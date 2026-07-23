@@ -618,14 +618,13 @@ class ImplicitEuler(DeCSpaceTimeSUPGSolver):
         return S
 
     def define_vector_sources_implicit(self, sub_sources, vect_sources, theta_m, op, al, dx_min):
-        all_sources = dict()
-        all_sources['u'] = -theta_m@sub_sources['u']
-        all_sources['v'] = -theta_m@sub_sources['v']
-        all_sources['p'] = -theta_m@sub_sources['p']
+        all_sources_u = -theta_m@sub_sources['u']
+        all_sources_v = -theta_m@sub_sources['v']
+        all_sources_p = -theta_m@sub_sources['p']
         #self.build_whole_q_vector(all_sources, vect_sources)
-        vect_sources[:] = -np.hstack([op["mass_tilde_x"]@all_sources['u'] + al*dx_min*op["DxM_tilde"]@all_sources['p'],
-                                   op["mass_tilde_y"]@all_sources['v'] + al*dx_min*op["DyM_tilde"]@all_sources['p'],
-                                   op["mass_tilde"]@all_sources['p']] + al*dx_min*(op["DxI_tilde"]@all_sources['u'] + op["DyI_tilde"]@all_sources['v']))
+        vect_sources[:] = -np.hstack([op["mass_tilde_x"]@all_sources_u + al*dx_min*op["DxM_tilde"]@all_sources_p,
+                                   op["mass_tilde_y"]@all_sources_v + al*dx_min*op["DyM_tilde"]@all_sources_p,
+                                   op["mass_tilde"]@all_sources_p] + al*dx_min*(op["DxI_tilde"]@all_sources_u + op["DyI_tilde"]@all_sources_v))
 
 
 def define_residuals_implicit(galer_residuals, q_prev,m,op,c,dx_min , al, theta_m, dt):
@@ -645,72 +644,8 @@ def define_residuals_implicit(galer_residuals, q_prev,m,op,c,dx_min , al, theta_
 
     return galer_residuals
 
-def define_residuals_MOR_implicit(galer_residuals, q_prev,m,op,c,dx_min , al, theta_m, dt):
-
-    """Assemble Galerkin residuals (no stabilization) 
-    for the standard (non-GF) formulation."""
-
-    galer_residuals["u"][:] = op["u"]["u"]["mass"]@(q_prev["u"][m,:]-q_prev["u"][0,:])/dt\
-        +c*   op["u"]["p"]["IDx"] @(theta_m @ q_prev["p"] )
-
-    galer_residuals["v"][:] = op["v"]["v"]["mass"]@(q_prev["v"][m,:]-q_prev["v"][0,:])/dt\
-        +c  * op["v"]["p"]["IDy"] @(theta_m @ q_prev["p"] )
-        
-    galer_residuals["p"][:] = op["p"]["p"]["mass"]@(q_prev["p"][m,:]-q_prev["p"][0,:])/dt\
-        +c*op["p"]["u"]["IDx"]@(theta_m @ q_prev["u"] )\
-        +c*op["p"]["v"]["IDy"]@(theta_m @ q_prev["v"] )
-
-    return galer_residuals
-
-def define_GF_residuals_implicit(galer_residuals, q_prev,m,op,c,dx_min , al, theta_m, dt):
-
-    """Assemble Galerkin residuals for the global-flux (GF) formulation when used with implicit DeC."""
-
-    galer_residuals["u"][:] = op["mass"]@(q_prev["u"][m,:]-q_prev["u"][0,:])/dt\
-        +c*op["IDx"]@(theta_m @ q_prev["p"])
-    
-    galer_residuals["v"][:] = op["mass"]@(q_prev["v"][m,:]-q_prev["v"][0,:])/dt\
-        +c*op["IDy"]@(theta_m @ q_prev["p"])
-    
-    galer_residuals["p"][:] = op["mass"]@(q_prev["p"][m,:]-q_prev["p"][0,:])/dt\
-        +c*op["IDx_tilde"] @(theta_m @ q_prev["u"] )\
-        +c*op["IDy_tilde"] @(theta_m @ q_prev["v"] )
-
-    return galer_residuals
-
-def define_GF_residuals_MOR_implicit(galer_residuals, q_prev,m,op,c,dx_min , al, theta_m, dt):
-
-    """Assemble Galerkin residuals for the global-flux (GF) formulation."""
-
-    galer_residuals["u"][:] = op["u"]["u"]["mass"]@(q_prev["u"][m,:]-q_prev["u"][0,:])/dt\
-        +c*op["u"]["p"]["IDx"]@(theta_m @ q_prev["p"] )
-    
-    galer_residuals["v"][:] = op["v"]["v"]["mass"]@(q_prev["v"][m,:]-q_prev["v"][0,:])/dt\
-        +c*op["v"]["p"]["IDy"]@(theta_m @ q_prev["p"] )
-    
-    galer_residuals["p"][:] = op["p"]["p"]["mass"]@(q_prev["p"][m,:]-q_prev["p"][0,:])/dt\
-        +c*op["p"]["u"]["IDx_tilde"] @(theta_m @ q_prev["u"] )\
-        +c*op["p"]["v"]["IDy_tilde"] @(theta_m @ q_prev["v"] )
-
-    return galer_residuals
 
 class ImplicitDec(ImplicitEuler):
-    def solver_set_parameters(self, stab_coeff=None, with_error=False, \
-              with_error_vertex=False, GF=None, CFL=None, \
-              stab=None, trick_second_der = False) :
-
-        error, error_vertex, method_name, error_name, get_residual, get_stabilization, curl_stabilization = \
-            super().solver_set_parameters(stab_coeff, with_error, with_error_vertex, GF, CFL, stab, trick_second_der)
-        if self.problem.equations == "acoustics":
-            if self.GF:
-                get_residual = define_GF_residuals_implicit
-            else:
-                get_residual = define_residuals_implicit
-        else:
-            raise NotImplementedError("Equations %s not implemented in solve in ImplicitDec"%self.problem.equations)
-
-        return error, error_vertex, method_name, error_name, get_residual, get_stabilization, curl_stabilization
-
     def solver_set_parameters_MOR(self, stab_coeff=None, with_error=False, \
               with_error_vertex=False, GF=None, CFL=None, \
               stab=None, trick_second_der = False) :
@@ -745,7 +680,7 @@ class ImplicitDec(ImplicitEuler):
         curr_i = 0
         for var in q:
             size_q = q[var].shape[1]
-            q[var][m,:] = vect_q[:, curr_i:curr_i+size_q]
+            q[var][m,:] = vect_q[curr_i:curr_i+size_q]
             curr_i += size_q
     
     def solve(self, stab_coeff = None, with_error = False, \
@@ -844,13 +779,15 @@ class ImplicitDec(ImplicitEuler):
         sub_sources = dict()
         for ivar, var in enumerate(self.problem.vars):
             sub_sources[var] = np.zeros_like(q_now[var])
+        vect_source = np.empty((1, size_array))
 
 
         tic = time.time()
 
         #Define big matrices
         _, B, L = self.build_whole_matrices(self.stab_coeff, self.geom.dx_min, dirichlet_BC)
-        S = self.define_matrix_sources_implicit(self.problem.coriolis, cor_nu, self.problem.friction)
+        S = self.define_matrix_sources_implicit(self.problem.coriolis, cor_nu, self.problem.friction, \
+                                                self.FEM2D.operator, self.stab_coeff, self.geom.dx_min, dirichlet_BC)
         
         #Enfore Dirichlet conditions
         if dirichlet_BC is not None:
@@ -886,8 +823,7 @@ class ImplicitDec(ImplicitEuler):
                 # Compute L2 high order space time discretization of the residual
                 # And update of q_now
                 self.implicitDeC_one_step(dt, L, B, S, q_prev, vect_q, L2, vect_L2, q_now,\
-                             sub_sources = sub_sources,\
-                             coriolis_not_uni = cor_nu,\
+                             cor_nu, sub_sources = sub_sources,\
                              get_residual=get_residual,\
                              get_stabilization=get_stabilization,\
                              curl_stabilization=curl_stabilization,\
@@ -977,7 +913,7 @@ class ImplicitDec(ImplicitEuler):
         return A, B, L 
 
     def implicitDeC_one_step(self, dt, L, E, S, q_prev, vect_q, L2, vect_L2, q_now,\
-                           vect_source, vect_sources_all, sub_sources, \
+                           cor_nu, sub_sources, \
                             get_residual, get_stabilization, curl_stabilization,\
                            dirichlet_BC = None, curl_stab_flag=False):
         """Perform one DeC correction sweep over one sub-node.
@@ -993,20 +929,19 @@ class ImplicitDec(ImplicitEuler):
         #stab_curl_coeff = self.stab_curl_coeff
 
         #self.build_whole_q_vector(q_prev, vect_q)
-        #all_sources   = dict()
+        all_sources   = dict()
         gal_residuals = dict()
         all_stabs     = dict()
         for var in self.problem.vars:
-            #all_sources[var]   = np.empty(q_prev[var][0,:].shape)
+            all_sources[var]   = np.empty(q_prev[var][0,:].shape)
             gal_residuals[var] = np.empty(q_prev[var][0,:].shape)
             all_stabs[var]     = np.empty(q_prev[var][0,:].shape)
 
-        self.build_whole_q_vector(q_prev, vect_q)
-
         for m in range(1,self.DeC.n_subNodes):
             # Carefull with the signs! source_u,_v,_p are meant on the LHS, while the other source was on the RHS
-            get_residual(gal_residuals, q_prev,m,op,c,self.FEM2D.geom.dx_min, self.stab_coeff, self.DeC.theta[m,:], dt)
-            get_stabilization(all_stabs, q_prev,m,op,c,self.FEM2D.geom.dx_min, self.stab_coeff, self.DeC.theta[m,:], dt)
+            define_sources(all_sources, q_prev, sub_sources, self.DeC.theta[m,:], self.problem.coriolis, cor_nu, self.problem.friction)
+            get_residual(gal_residuals, q_prev, all_sources, m,op,c,self.FEM2D.geom.dx_min, self.stab_coeff, self.DeC.theta[m,:], dt)
+            get_stabilization(all_stabs, q_prev, all_sources, m,op,c,self.FEM2D.geom.dx_min, self.stab_coeff, self.DeC.theta[m,:], dt)
 
             for var in self.problem.vars:
                 L2[var][:] = gal_residuals[var]+ all_stabs[var]
@@ -1025,9 +960,6 @@ class ImplicitDec(ImplicitEuler):
 
             #Define RHS
             self.build_whole_q_vector(L2, vect_L2, 0)
-            self.build_whole_q_vector(sub_sources, vect_sources_all, m)
-            vect_source = self.define_vector_sources_implicit(vect_sources_all, self.DeC.theta[m, :])
-            vect_L2 += vect_source.squeeze()
 
             beta = self.DeC.beta[m]
             vect_q = sp.linalg.spsolve(-L/dt-beta*(E+S), vect_L2[0,:]) 
