@@ -13,7 +13,7 @@ class MOR:
     and DeC iterations in time.
     """
 
-    def __init__(self, problem, FEM2D, DeC, solver, tol=1e-5, GF=True, stab="SUPG", variable_split="u,v,p"):
+    def __init__(self, problem, FEM2D, DeC, solver, tol=1e-5, GF=True, stab="SUPG", variable_split="u,v,p", only_final_time=False):
         """Initialize the MOR solver.
         
         Args:
@@ -25,11 +25,13 @@ class MOR:
             GF: Whether to use the Galerkin formulation.
             stab: The stabilization method to use.
             variable_split: The variable split to use for the reduced basis. #"u,v,p" or "uv,p"
+            only_final_time: Whether to only save the final time step.
         """
         self.FEM2D   = FEM2D
         self.DeC     = DeC
         self.problem = problem
         self.variable_split = variable_split
+        self.only_final_time = only_final_time
         if self.variable_split == "u,v,p":
             self.vars = ("u", "v", "p")
         elif self.variable_split == "uv,p":
@@ -46,7 +48,10 @@ class MOR:
     def run_offline(self, mu_offline, n_rb=None, load_sol=False):
         self.mu_offline = mu_offline
         # Generate (or read) the snapshots
-        inputfile_name = os.path.join(self.problem.folderName,f"snapshots_offline_{self.GF_string}_ord_{self.solver.FEM2D.FEM1Dx.degree+1}_N_{self.FEM2D.geom.N_elem_dir[0]}.npz")
+        if self.only_final_time:
+            inputfile_name = os.path.join(self.problem.folderName,f"snapshots_final_time_offline_{self.GF_string}_ord_{self.solver.FEM2D.FEM1Dx.degree+1}_N_{self.FEM2D.geom.N_elem_dir[0]}.npz")
+        else:
+            inputfile_name = os.path.join(self.problem.folderName,f"snapshots_offline_{self.GF_string}_ord_{self.solver.FEM2D.FEM1Dx.degree+1}_N_{self.FEM2D.geom.N_elem_dir[0]}.npz")
 
         # if file exists allow to load
         if load_sol and not os.path.exists(inputfile_name):
@@ -55,7 +60,10 @@ class MOR:
         if not load_sol:
             self.snapshots = dict()
             for var in self.problem.vars:
-                self.snapshots[var] = np.zeros([self.FEM2D.n_dof_tot,len(self.mu_offline)*self.solver.Nt_save], dtype=np.float64)
+                if self.only_final_time:
+                    self.snapshots[var] = np.zeros([self.FEM2D.n_dof_tot,len(self.mu_offline)], dtype=np.float64)
+                else:
+                    self.snapshots[var] = np.zeros([self.FEM2D.n_dof_tot,len(self.mu_offline)*self.solver.Nt_save], dtype=np.float64)
             for idx_mu, mu_ in enumerate(mu_offline):
                 self.problem.set_parameters(mu_)
                 self.solver.set_ic()
@@ -63,9 +71,13 @@ class MOR:
                 print("Computing GF-SUPG")
                 qGF, _, _, _ , _  = self.solver.solve(save_sol=False, with_error=False)
 
-                for i in np.arange(0,qGF["u"].shape[0],1):
+                if self.only_final_time:
                     for var in self.problem.vars:
-                        self.snapshots[var][:,i + idx_mu*self.solver.Nt_save] = qGF[var][i,:]
+                        self.snapshots[var][:,idx_mu] = qGF[var][-1,:]
+                else:
+                    for i in np.arange(0,qGF["u"].shape[0],1):
+                        for var in self.problem.vars:
+                            self.snapshots[var][:,i + idx_mu*self.solver.Nt_save] = qGF[var][i,:]
         
             np.savez(inputfile_name, snapshots=self.snapshots, mu_offline=self.mu_offline, n_dof_x=self.FEM2D.n_dof_dir[0], n_dof_y=self.FEM2D.n_dof_dir[1])
         else:
