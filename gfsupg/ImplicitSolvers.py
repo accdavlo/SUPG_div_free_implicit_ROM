@@ -627,41 +627,7 @@ class ImplicitEuler(DeCSpaceTimeSUPGSolver):
                                    op["mass_tilde"]@all_sources_p] + al*dx_min*(op["DxI_tilde"]@all_sources_u + op["DyI_tilde"]@all_sources_v))
 
 
-def define_residuals_implicit(galer_residuals, q_prev,m,op,c,dx_min , al, theta_m, dt):
-
-    """Assemble Galerkin residuals (no stabilization) 
-    for the standard (non-GF) formulation."""
-
-    galer_residuals["u"][:] = op["mass"]@(q_prev["u"][m,:]-q_prev["u"][0,:])/dt\
-        +c*   op["IDx"] @(theta_m @ q_prev["p"] )
-
-    galer_residuals["v"][:] = op["mass"]@(q_prev["v"][m,:]-q_prev["v"][0,:])/dt\
-        +c  * op["IDy"] @(theta_m @ q_prev["p"] )
-        
-    galer_residuals["p"][:] = op["mass"]@(q_prev["p"][m,:]-q_prev["p"][0,:])/dt\
-        +c*op["IDx"]@(theta_m @ q_prev["u"] )\
-        +c*op["IDy"]@(theta_m @ q_prev["v"] )
-
-    return galer_residuals
-
-
 class ImplicitDec(ImplicitEuler):
-    def solver_set_parameters_MOR(self, stab_coeff=None, with_error=False, \
-              with_error_vertex=False, GF=None, CFL=None, \
-              stab=None, trick_second_der = False) :
-
-        error, error_vertex, method_name, error_name, get_residual, get_stabilization, curl_stabilization = \
-            super().solver_set_parameters(stab_coeff, with_error, with_error_vertex, GF, CFL, stab, trick_second_der)
-        if self.problem.equations == "acoustics":
-            if self.GF:
-                get_residual = define_GF_residuals_MOR_implicit
-            else:
-                get_residual = define_residuals_MOR_implicit
-        else:
-            raise NotImplementedError("Equations %s not implemented in solve in ImplicitDec"%self.problem.equations)
-
-        return error, error_vertex, method_name, error_name, get_residual, get_stabilization, curl_stabilization
-
     def build_whole_q_vector(self, q:dict, vect_q:np.ndarray, m:int)->None:
         """
         Builds a whole vector stacking along dimension 0 the arrays in q.
