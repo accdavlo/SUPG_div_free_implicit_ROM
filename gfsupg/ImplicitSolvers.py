@@ -1,4 +1,9 @@
 from .solver import DeCSpaceTimeSUPGSolver, Dirichlet_BC_set, define_sources
+from .solver import define_GF_residuals_MOR, define_residuals_MOR
+from .solver import define_GF_residuals_MOR_uv_p, define_residuals_MOR_uv_p
+from .solver import SUPG_GF_stabilization_MOR, SUPG_stabilization_MOR
+from .solver import SUPG_GF_stabilization_MOR_uv_p, SUPG_stabilization_MOR_uv_p
+#from .solver import OSS_GF_stabilization_MOR, OSS_stabilization_MOR
 import numpy as np
 import scipy.sparse as sp
 from scipy.sparse import hstack, vstack
@@ -110,6 +115,7 @@ class ImplicitEuler(DeCSpaceTimeSUPGSolver):
     
     def build_whole_matrices_MOR(self,ROM,a,dx, dirichlet_BC = None):
         n_rb = ROM.n_rb
+        #basis = ROM.basis
 
         if ROM.variable_split == "u,v,p":
             A_C = np.vstack([np.hstack([self.FEM2D.operator_MOR["u"]["u"]["mass"], np.zeros((n_rb["u"], n_rb["v"])), np.zeros((n_rb["u"], n_rb["p"]))]), \
@@ -617,6 +623,54 @@ class ImplicitEuler(DeCSpaceTimeSUPGSolver):
     
         return S
 
+    def define_matrix_sources_implicit_MOR(self, ROM, cor, coriolis_not_uni, fric, op, al, dx_min, dirichlet_BC = None):
+        """Build momentum and pressure source terms in semi-discrete form for the reduced model.
+    
+        Signs follow the convention used in `DeC_one_step`, where the assembled
+        source terms are moved to the left-hand side of the residual equations.
+        """
+        n_rb = ROM.n_rb
+        ndof = sum(np.array([ROM.n_rb[k] for k in ROM.vars]))
+        S = np.empty([ndof,ndof])
+        if ROM.variable_split == "u,v,p":
+            cor_mat_uv = (ROM.basis["u"].T@np.diag(coriolis_not_uni)@ROM.basis["v"])
+            cor_mat_vu = (ROM.basis["v"].T@np.diag(coriolis_not_uni)@ROM.basis["u"])
+            cor_mat_pv = (ROM.basis["p"].T@np.diag(coriolis_not_uni)@ROM.basis["v"])
+            cor_mat_pu = (ROM.basis["p"].T@np.diag(coriolis_not_uni)@ROM.basis["u"])
+        
+            S = vstack([hstack([fric*op["u"]["u"]["mass_tilde_x"], \
+                                -(cor*op["u"]["v"]["mass_tilde_x"] + op["u"]["v"]["mass_tilde_x"]@cor_mat_uv), \
+                                np.zeros((n_rb["u"], n_rb["p"]))]), \
+                        hstack([cor*op["u"]["v"]["mass_tilde_x"] + op["u"]["v"]["mass_tilde_x"]@cor_mat_vu, \
+                                fric*op["v"]["v"]["mass_tilde_y"], \
+                                np.zeros((n_rb["v"], n_rb["p"]))]),\
+                        hstack([al*dx_min*(fric*op["p"]["u"]["DxI_tilde"] + cor*op["p"]["u"]["DyI_tilde"] + op["p"]["u"]["DyI_tilde"]@cor_mat_pu), \
+                                al*dx_min*(fric*op["DyI_tilde"] - cor*op["p"]["v"]["DxI_tilde"] - op["p"]["v"]["DxI_tilde"]@cor_mat_pv), \
+                                    np.zeros((n_rb["p"], n_rb["p"]))])])            
+        if ROM.variable_split == "uv,p":
+            ##[[fric*Id,       0], + [[0       , -cor_diag]
+            ## [      0, fric*Id]]    [cor_diag,         0]]
+            #cor_mat = (ROM.basis["uv"].T@np.diag(coriolis_not_uni)@ROM.basis["uv"])
+            ## al*dx_min*[fric * ]
+            #cor_mat_puv = (ROM.basis["p"].T@np.diag(coriolis_not_uni)@ROM.basis["uv"])
+        
+            #S = vstack([hstack([fric*op["uv"]["uv"]["mass_tilde_x"], \
+            #                    -(cor*op["u"]["v"]["mass_tilde_x"] + op["u"]["v"]["mass_tilde_x"]@cor_mat), \
+            #                    np.zeros((n_rb["u"], n_rb["p"]))]), \
+            #            hstack([cor*op["u"]["v"]["mass_tilde_x"] + op["u"]["v"]["mass_tilde_x"]@cor_mat_vu, \
+            #                    fric*op["v"]["v"]["mass_tilde_y"], \
+            #                    np.zeros((n_rb["v"], n_rb["p"]))]),\
+            #            hstack([al*dx_min*(fric*op["p"]["uv"]["DxI_tilde"] + cor*op["p"]["uv"]["DyI_tilde"] + op["p"]["uv"]["DyI_tilde"]@cor_mat_puv), \
+            #                        np.zeros((n_rb["p"], n_rb["p"]))])])   
+            raise NotImplementedError("Problem with matrix reconstruction using ROM.")
+
+
+        
+        if dirichlet_BC is not None:
+            raise NotImplementedError("No Dirichlet condition for ROM yet")
+    
+        return S
+
     def define_vector_sources_implicit(self, sub_sources, vect_sources, theta_m, op, al, dx_min):
         all_sources_u = -theta_m@sub_sources['u']
         all_sources_v = -theta_m@sub_sources['v']
@@ -628,6 +682,44 @@ class ImplicitEuler(DeCSpaceTimeSUPGSolver):
 
 
 class ImplicitDec(ImplicitEuler):
+    def solver_set_parameters_MOR(self, ROM, stab_coeff=None, with_error=False, \
+              with_error_vertex=False, GF=None, CFL=None, \
+              stab=None, trick_second_der = False) :
+
+        error, error_vertex, method_name, error_name, get_residual, get_stabilization, curl_stabilization = \
+            super().solver_set_parameters(stab_coeff, with_error, with_error_vertex, GF, CFL, stab, trick_second_der)
+        if self.problem.equations == "acoustics":
+            if self.GF:
+                if ROM.variable_split == "u,v,p":
+                    get_residual = define_GF_residuals_MOR
+                elif ROM.variable_split =="uv,p":
+                    get_residual = define_GF_residuals_MOR_uv_p
+                if self.stab == "SUPG":
+                    if ROM.variable_split == "u,v,p":
+                        get_stabilization = SUPG_GF_stabilization_MOR
+                    elif ROM.variable_split =="uv,p":
+                        get_stabilization = SUPG_GF_stabilization_MOR_uv_p
+                elif self.stab =="OSS":
+                    raise NotImplementedError("No OSS stabilization for MOR yet")
+                    #get_stabilization = OSS_GF_stabilization_MOR
+            else:
+                if ROM.variable_split == "u,v,p":
+                    get_residual = define_residuals_MOR
+                elif ROM.variable_split =="uv,p":
+                    get_residual = define_residuals_MOR_uv_p
+                if self.stab == "SUPG":
+                    if ROM.variable_split == "u,v,p":
+                        get_stabilization = SUPG_stabilization_MOR
+                    elif ROM.variable_split =="uv,p":
+                        get_stabilization = SUPG_stabilization_MOR_uv_p
+                elif self.stab =="OSS":
+                    raise NotImplementedError("No OSS stabilization for MOR yet")
+                    #get_stabilization = OSS_stabilization_MOR
+        else:
+            raise NotImplementedError("Equations %s not implemented in solve in ImplicitDec"%self.problem.equations)
+
+        return error, error_vertex, method_name, error_name, get_residual, get_stabilization, curl_stabilization
+
     def build_whole_q_vector(self, q:dict, vect_q:np.ndarray, m:int)->None:
         """
         Builds a whole vector stacking along dimension 0 the arrays in q.
@@ -858,22 +950,26 @@ class ImplicitDec(ImplicitEuler):
         print("")
         return q_save, tt_save, comp_time, error, error_vertex
 
-    def build_whole_matrices(self,a,dx, dirichlet_BC = None):
-        A, B = super().build_whole_matrices(a,dx, dirichlet_BC)
+    def build_whole_matrices_MOR(self, ROM, a, dx, dirichlet_BC = None):
+        
+        A, B = super().build_whole_matrices_MOR(ROM, a, dx, dirichlet_BC)
 
-        L=sp.csr_matrix((self.FEM2D.n_dof_tot*3,self.FEM2D.n_dof_tot*3))
-        zero = sp.csr_matrix((self.FEM2D.n_dof_tot,self.FEM2D.n_dof_tot))
-
-        L = vstack([hstack([self.FEM2D.operator["lump_mass"], zero, zero]), \
-                      hstack([zero, self.FEM2D.operator["lump_mass"], zero]),\
-                      hstack([zero, zero, self.FEM2D.operator["lump_mass"]])])
+        n_rb = ROM.n_rb
+        if ROM.variable_split == "u,v,p":
+            L = vstack([hstack([self.FEM2D.operator_MOR["u"]["u"]["lump_mass"], np.zeros((n_rb["u"], n_rb["v"])), np.zeros((n_rb["u"], n_rb["p"]))]), \
+                          hstack([np.zeros((n_rb["v"], n_rb["u"])), self.FEM2D.operator_MOR["v"]["v"]["lump_mass"], np.zeros((n_rb["v"], n_rb["p"]))]),\
+                          hstack([np.zeros((n_rb["p"], n_rb["u"])), np.zeros((n_rb["p"], n_rb["v"])), self.FEM2D.operator_MOR["p"]["p"]["lump_mass"]])])
+        if ROM.variable_split == "uv,p":
+            L = vstack([hstack([self.FEM2D.operator_MOR["uv"]["uv"]["lump_mass"], np.zeros((n_rb["uv"], n_rb["p"]))]), \
+                          hstack([np.zeros((n_rb["p"], n_rb["uv"])), self.FEM2D.operator_MOR["p"]["p"]["lump_mass"]])])
         
         if dirichlet_BC is not None:
-            for bc_item in dirichlet_BC.keys():
-                    for i in dirichlet_BC[bc_item].indexes:
-                        L = delete_row_in_coo_and_keep_diag_one(L, i)
-                        L = delete_row_in_coo_and_keep_diag_one(L, i + self.FEM2D.n_dof_tot)
-                        L = delete_row_in_coo_and_keep_diag_one(L, i + 2*self.FEM2D.n_dof_tot)
+            raise NotImplementedError("Dirichlet BC not implemented for DEC-MOR yet")
+            # for bc_item in dirichlet_BC.keys():
+            #         for i in dirichlet_BC[bc_item].indexes:
+            #             L = delete_row_in_coo_and_keep_diag_one(L, i)
+            #             L = delete_row_in_coo_and_keep_diag_one(L, i + self.FEM2D.n_dof_tot)
+            #             L = delete_row_in_coo_and_keep_diag_one(L, i + 2*self.FEM2D.n_dof_tot)
     
 
         return A, B, L 
@@ -928,7 +1024,10 @@ class ImplicitDec(ImplicitEuler):
             self.build_whole_q_vector(L2, vect_L2, 0)
 
             beta = self.DeC.beta[m]
-            vect_q = sp.linalg.spsolve(-L/dt-beta*(E+S), vect_L2[0,:]) 
+            if sp.issparse(L):
+                vect_q = sp.linalg.spsolve(-L/dt-beta*(E+S), vect_L2[0,:]) 
+            else:
+                vect_q = np.linalg.solve(-L/dt-beta*(E+S), vect_L2[0,:]) 
 
             self.split_whole_q_vector(q_now, vect_q, m)
             for var in self.problem.vars:
@@ -974,7 +1073,7 @@ class ImplicitDec(ImplicitEuler):
         """
 
         error, error_vertex, method_name, error_name, get_residual, get_stabilization, curl_stabilization = \
-                self.solver_set_parameters_MOR(stab_coeff, with_error, with_error_vertex, \
+                self.solver_set_parameters_MOR(ROM, stab_coeff, with_error, with_error_vertex, \
                                            GF, CFL, stab)
 
         self.set_second_derivative_operators()
@@ -1002,6 +1101,10 @@ class ImplicitDec(ImplicitEuler):
             q_now[var]  = np.zeros((self.DeC.n_subNodes, self.FEM2D.n_dof_rb[var]))
             for i in range(self.DeC.n_subNodes):
                 q_now[var][i,:] = ic_ROM[var]
+
+        size_array = sum(np.array([q_prev[k].shape[1] for k in ROM.vars]))            
+        vect_q = np.empty((self.DeC.n_subNodes, size_array))
+        vect_L2 = np.empty((1,size_array))
 
         for var in ROM.vars:
             q_save[var][it_save,:] = q_now[var][-1,:]
@@ -1031,6 +1134,11 @@ class ImplicitDec(ImplicitEuler):
 
 
         tic = time.time()
+        
+        _, B, L = self.build_whole_matrices_MOR(self.stab_coeff, self.geom.dx_min, None)
+        S = self.define_matrix_sources_implicit_MOR(ROM, self.problem.coriolis, cor_nu, self.problem.friction, \
+                                                self.FEM2D.operator_MOR, self.stab_coeff, self.geom.dx_min, None)
+
         while (t<self.problem.T_fin and it<self.Nt_max):
             # Set dt
             dt =  self.CFL* self.geom.dx_min#self.CFL * self.problem.max_dt(q, self.geom.dx)
@@ -1062,15 +1170,22 @@ class ImplicitDec(ImplicitEuler):
 
                 # Compute L2 high order space time discretization of the residual
                 # And update of q_now
+                self.implicitDeC_one_step(dt, L, B, S, q_prev, vect_q, L2, vect_L2, q_now,\
+                             cor_nu, sub_sources = sub_sources,\
+                             get_residual=get_residual,\
+                             get_stabilization=get_stabilization,\
+                             curl_stabilization=curl_stabilization,\
+                             dirichlet_BC=None,
+                             curl_stab_flag = curl_stab_flag)
                 # STILL EXPLICIT ROM!
-                DeC_one_step_MOR(ROM,self.problem, self.DeC, self.FEM2D, dt, al,\
-                                 self.stab_curl_coeff, q_prev, L2, q_now, sub_sources = sub_sources,\
-                                 coriolis_not_uni = cor_nu,\
-                                 get_residual=get_residual,\
-                                 get_stabilization=get_stabilization,\
-                                 curl_stabilization=None,\
-                                 dirichlet_BC=None,
-                                 curl_stab_flag = curl_stab_flag)
+                #DeC_one_step_MOR(ROM,self.problem, self.DeC, self.FEM2D, dt, al,\
+                #                 self.stab_curl_coeff, q_prev, L2, q_now, sub_sources = sub_sources,\
+                #                 coriolis_not_uni = cor_nu,\
+                #                 get_residual=get_residual,\
+                #                 get_stabilization=get_stabilization,\
+                #                 curl_stabilization=None,\
+                #                 dirichlet_BC=None,
+                #                 curl_stab_flag = curl_stab_flag)
             
             for var in ROM.vars:
                 q[var] = q_now[var][-1,:]
