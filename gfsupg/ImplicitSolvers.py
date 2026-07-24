@@ -79,12 +79,20 @@ class ImplicitEuler(DeCSpaceTimeSUPGSolver):
         A_SU = a * dx * vstack([hstack([zero, zero, self.FEM2D.operator["DxI"]]), \
                        hstack([zero, zero, self.FEM2D.operator["DyI"]]),\
                        hstack([self.FEM2D.operator["DxI"], self.FEM2D.operator["DyI"], zero])])
-        Eps_CGFq = vstack([hstack([zero, zero, self.FEM2D.operator["IDx"]]), \
-                           hstack([zero, zero, self.FEM2D.operator["IDy"]]),\
-                           hstack([self.FEM2D.operator["IDx_tilde"], self.FEM2D.operator["IDy_tilde"], zero])])
-        Eps_SUGFq = a * dx * vstack([hstack([self.FEM2D.operator["DxDx_tilde"], self.FEM2D.operator["DxDy_tilde"], zero ]), \
-                                     hstack([self.FEM2D.operator["DyDx_tilde"], self.FEM2D.operator["DyDy_tilde"], zero ]),\
-                                     hstack([zero, zero, self.FEM2D.operator["DxDx"] + self.FEM2D.operator["DyDy"]])])
+        if self.GF:
+            Eps_CGFq = vstack([hstack([zero, zero, self.FEM2D.operator["IDx"]]), \
+                               hstack([zero, zero, self.FEM2D.operator["IDy"]]),\
+                               hstack([self.FEM2D.operator["IDx_tilde"], self.FEM2D.operator["IDy_tilde"], zero])])
+            Eps_SUGFq = a * dx * vstack([hstack([self.FEM2D.operator["DxDx_tilde"], self.FEM2D.operator["DxDy_tilde"], zero ]), \
+                                         hstack([self.FEM2D.operator["DyDx_tilde"], self.FEM2D.operator["DyDy_tilde"], zero ]),\
+                                         hstack([zero, zero, self.FEM2D.operator["DxDx"] + self.FEM2D.operator["DyDy"]])])
+        else:
+            Eps_CGFq = vstack([hstack([zero, zero, self.FEM2D.operator["IDx"]]), \
+                               hstack([zero, zero, self.FEM2D.operator["IDy"]]),\
+                               hstack([self.FEM2D.operator["IDx"], self.FEM2D.operator["IDy"], zero])])
+            Eps_SUGFq = a * dx * vstack([hstack([self.FEM2D.operator["DxDx"], self.FEM2D.operator["DxDy"], zero ]), \
+                                         hstack([self.FEM2D.operator["DyDx"], self.FEM2D.operator["DyDy"], zero ]),\
+                                         hstack([zero, zero, self.FEM2D.operator["DxDx"] + self.FEM2D.operator["DyDy"]])])
 
         if dirichlet_BC is not None:
             for bc_item in dirichlet_BC.keys():
@@ -124,21 +132,36 @@ class ImplicitEuler(DeCSpaceTimeSUPGSolver):
             A_SU = a * dx * np.vstack([np.hstack([np.zeros((n_rb["u"], n_rb["u"])), np.zeros((n_rb["u"], n_rb["v"])), self.FEM2D.operator_MOR["u"]["p"]["DxI"]]), \
                         np.hstack([np.zeros((n_rb["v"], n_rb["u"])), np.zeros((n_rb["v"], n_rb["v"])), self.FEM2D.operator_MOR["v"]["p"]["DyI"]]),\
                         np.hstack([self.FEM2D.operator_MOR["p"]["u"]["DxI"], self.FEM2D.operator_MOR["p"]["v"]["DyI"], np.zeros((n_rb["p"], n_rb["p"]))])])
-            Eps_CGFq = np.vstack([np.hstack([np.zeros((n_rb["u"], n_rb["u"])), np.zeros((n_rb["u"], n_rb["v"])), self.FEM2D.operator_MOR["u"]["p"]["IDx"]]), \
+            if self.GF:
+                Eps_CGFq = np.vstack([np.hstack([np.zeros((n_rb["u"], n_rb["u"])), np.zeros((n_rb["u"], n_rb["v"])), self.FEM2D.operator_MOR["u"]["p"]["IDx"]]), \
                             np.hstack([np.zeros((n_rb["v"], n_rb["u"])), np.zeros((n_rb["v"], n_rb["v"])), self.FEM2D.operator_MOR["v"]["p"]["IDy"]]),\
                             np.hstack([self.FEM2D.operator_MOR["p"]["u"]["IDx_tilde"], self.FEM2D.operator_MOR["p"]["v"]["IDy_tilde"], np.zeros((n_rb["p"], n_rb["p"]))])])
-            Eps_SUGFq = a * dx * np.vstack([np.hstack([self.FEM2D.operator_MOR["u"]["u"]["DxDx_tilde"], self.FEM2D.operator_MOR["u"]["v"]["DxDy_tilde"], np.zeros((n_rb["u"], n_rb["p"])) ]), \
+                Eps_SUGFq = a * dx * np.vstack([np.hstack([self.FEM2D.operator_MOR["u"]["u"]["DxDx_tilde"], self.FEM2D.operator_MOR["u"]["v"]["DxDy_tilde"], np.zeros((n_rb["u"], n_rb["p"])) ]), \
                                         np.hstack([self.FEM2D.operator_MOR["v"]["u"]["DyDx_tilde"], self.FEM2D.operator_MOR["v"]["v"]["DyDy_tilde"], np.zeros((n_rb["v"], n_rb["p"])) ]),\
+                                        np.hstack([np.zeros((n_rb["p"], n_rb["u"])), np.zeros((n_rb["p"], n_rb["v"])), self.FEM2D.operator_MOR["p"]["p"]["DxDx"] + self.FEM2D.operator_MOR["p"]["p"]["DyDy"]])])
+            else:
+                Eps_CGFq = np.vstack([np.hstack([np.zeros((n_rb["u"], n_rb["u"])), np.zeros((n_rb["u"], n_rb["v"])), self.FEM2D.operator_MOR["u"]["p"]["IDx"]]), \
+                            np.hstack([np.zeros((n_rb["v"], n_rb["u"])), np.zeros((n_rb["v"], n_rb["v"])), self.FEM2D.operator_MOR["v"]["p"]["IDy"]]),\
+                            np.hstack([self.FEM2D.operator_MOR["p"]["u"]["IDx"], self.FEM2D.operator_MOR["p"]["v"]["IDy"], np.zeros((n_rb["p"], n_rb["p"]))])])
+                Eps_SUGFq = a * dx * np.vstack([np.hstack([self.FEM2D.operator_MOR["u"]["u"]["DxDx"], self.FEM2D.operator_MOR["u"]["v"]["DxDy"], np.zeros((n_rb["u"], n_rb["p"])) ]), \
+                                        np.hstack([self.FEM2D.operator_MOR["v"]["u"]["DyDx"], self.FEM2D.operator_MOR["v"]["v"]["DyDy"], np.zeros((n_rb["v"], n_rb["p"])) ]),\
                                         np.hstack([np.zeros((n_rb["p"], n_rb["u"])), np.zeros((n_rb["p"], n_rb["v"])), self.FEM2D.operator_MOR["p"]["p"]["DxDx"] + self.FEM2D.operator_MOR["p"]["p"]["DyDy"]])])
         elif ROM.variable_split == "uv,p":
             A_C = np.vstack([np.hstack([self.FEM2D.operator_MOR["uv"]["uv"]["mass"],  np.zeros((n_rb["uv"], n_rb["p"]))]), \
                         np.hstack([np.zeros((n_rb["p"], n_rb["uv"])), self.FEM2D.operator_MOR["p"]["p"]["mass"]])])
             A_SU = a * dx * np.vstack([np.hstack([np.zeros((n_rb["uv"], n_rb["uv"])), self.FEM2D.operator_MOR["uv"]["p"]["GradI"]]), \
                         np.hstack([self.FEM2D.operator_MOR["p"]["uv"]["DivI"], np.zeros((n_rb["p"], n_rb["p"]))])])
-            Eps_CGFq = np.vstack([np.hstack([np.zeros((n_rb["uv"], n_rb["uv"])),self.FEM2D.operator_MOR["uv"]["p"]["IGrad"]]), \
+            if self.GF:
+                Eps_CGFq = np.vstack([np.hstack([np.zeros((n_rb["uv"], n_rb["uv"])),self.FEM2D.operator_MOR["uv"]["p"]["IGrad"]]), \
                             np.hstack([self.FEM2D.operator_MOR["p"]["uv"]["IDiv_tilde"], np.zeros((n_rb["p"], n_rb["p"]))])])
 
-            Eps_SUGFq = a * dx * np.vstack([np.hstack([self.FEM2D.operator_MOR["uv"]["uv"]["GradDiv_tilde"], np.zeros((n_rb["uv"], n_rb["p"])) ]), \
+                Eps_SUGFq = a * dx * np.vstack([np.hstack([self.FEM2D.operator_MOR["uv"]["uv"]["GradDiv_tilde"], np.zeros((n_rb["uv"], n_rb["p"])) ]), \
+                        np.hstack([np.zeros((n_rb["p"], n_rb["uv"])), self.FEM2D.operator_MOR["p"]["p"]["DivGrad"] ])])    
+            else:
+                Eps_CGFq = np.vstack([np.hstack([np.zeros((n_rb["uv"], n_rb["uv"])),self.FEM2D.operator_MOR["uv"]["p"]["IGrad"]]), \
+                            np.hstack([self.FEM2D.operator_MOR["p"]["uv"]["IDiv"], np.zeros((n_rb["p"], n_rb["p"]))])])
+
+                Eps_SUGFq = a * dx * np.vstack([np.hstack([self.FEM2D.operator_MOR["uv"]["uv"]["GradDiv"], np.zeros((n_rb["uv"], n_rb["p"])) ]), \
                         np.hstack([np.zeros((n_rb["p"], n_rb["uv"])), self.FEM2D.operator_MOR["p"]["p"]["DivGrad"] ])])    
 
         return A_C+A_SU, Eps_CGFq + Eps_SUGFq
@@ -610,10 +633,15 @@ class ImplicitEuler(DeCSpaceTimeSUPGSolver):
         zero = sp.csr_matrix((ndof,ndof))
         cor_mat = (cor*sp.eye(ndof)+sp.diags(coriolis_not_uni))
     
-        S = vstack([hstack([fric*op["mass_tilde_x"], -op["mass_tilde_x"]@cor_mat, zero]), \
-                      hstack([op["mass_tilde_y"]@cor_mat, fric*op["mass_tilde_y"], zero]),\
-                      hstack([al*dx_min*(fric*op["DxI_tilde"] + op["DyI_tilde"]@cor_mat), al*dx_min*(fric*op["DyI_tilde"] - op["DxI_tilde"]@cor_mat), zero])])
-        
+        if self.GF:
+            S = vstack([hstack([fric*op["mass_tilde_x"], -op["mass_tilde_x"]@cor_mat, zero]), \
+                          hstack([op["mass_tilde_y"]@cor_mat, fric*op["mass_tilde_y"], zero]),\
+                          hstack([al*dx_min*(fric*op["DxI_tilde"] + op["DyI_tilde"]@cor_mat), al*dx_min*(fric*op["DyI_tilde"] - op["DxI_tilde"]@cor_mat), zero])])
+        else:
+            S = vstack([hstack([fric*op["mass"], -op["mass"]@cor_mat, zero]), \
+                          hstack([op["mass"]@cor_mat, fric*op["mass"], zero]),\
+                          hstack([al*dx_min*(fric*op["DxI"] + op["DyI"]@cor_mat), al*dx_min*(fric*op["DyI"] - op["DxI"]@cor_mat), zero])])
+
         if dirichlet_BC is not None:
             for bc_item in dirichlet_BC.keys():
                     for i in dirichlet_BC[bc_item].indexes:
@@ -638,32 +666,39 @@ class ImplicitEuler(DeCSpaceTimeSUPGSolver):
             cor_mat_pv = (ROM.basis["p"].T@np.diag(coriolis_not_uni)@ROM.basis["v"])
             cor_mat_pu = (ROM.basis["p"].T@np.diag(coriolis_not_uni)@ROM.basis["u"])
         
-            S = vstack([hstack([fric*op["u"]["u"]["mass_tilde_x"], \
-                                -(cor*op["u"]["v"]["mass_tilde_x"] + op["u"]["v"]["mass_tilde_x"]@cor_mat_uv), \
-                                np.zeros((n_rb["u"], n_rb["p"]))]), \
-                        hstack([cor*op["u"]["v"]["mass_tilde_x"] + op["u"]["v"]["mass_tilde_x"]@cor_mat_vu, \
-                                fric*op["v"]["v"]["mass_tilde_y"], \
-                                np.zeros((n_rb["v"], n_rb["p"]))]),\
-                        hstack([al*dx_min*(fric*op["p"]["u"]["DxI_tilde"] + cor*op["p"]["u"]["DyI_tilde"] + op["p"]["u"]["DyI_tilde"]@cor_mat_pu), \
-                                al*dx_min*(fric*op["DyI_tilde"] - cor*op["p"]["v"]["DxI_tilde"] - op["p"]["v"]["DxI_tilde"]@cor_mat_pv), \
-                                    np.zeros((n_rb["p"], n_rb["p"]))])])            
-        if ROM.variable_split == "uv,p":
-            ##[[fric*Id,       0], + [[0       , -cor_diag]
-            ## [      0, fric*Id]]    [cor_diag,         0]]
-            #cor_mat = (ROM.basis["uv"].T@np.diag(coriolis_not_uni)@ROM.basis["uv"])
-            ## al*dx_min*[fric * ]
-            #cor_mat_puv = (ROM.basis["p"].T@np.diag(coriolis_not_uni)@ROM.basis["uv"])
-        
-            #S = vstack([hstack([fric*op["uv"]["uv"]["mass_tilde_x"], \
-            #                    -(cor*op["u"]["v"]["mass_tilde_x"] + op["u"]["v"]["mass_tilde_x"]@cor_mat), \
-            #                    np.zeros((n_rb["u"], n_rb["p"]))]), \
-            #            hstack([cor*op["u"]["v"]["mass_tilde_x"] + op["u"]["v"]["mass_tilde_x"]@cor_mat_vu, \
-            #                    fric*op["v"]["v"]["mass_tilde_y"], \
-            #                    np.zeros((n_rb["v"], n_rb["p"]))]),\
-            #            hstack([al*dx_min*(fric*op["p"]["uv"]["DxI_tilde"] + cor*op["p"]["uv"]["DyI_tilde"] + op["p"]["uv"]["DyI_tilde"]@cor_mat_puv), \
-            #                        np.zeros((n_rb["p"], n_rb["p"]))])])   
-            raise NotImplementedError("Problem with matrix reconstruction using ROM.")
-
+            if self.GF:
+                S = vstack([hstack([fric*op["u"]["u"]["mass_tilde_x"], \
+                                    -(cor*op["u"]["v"]["mass_tilde_x"] + op["u"]["v"]["mass_tilde_x"]@cor_mat_uv), \
+                                    np.zeros((n_rb["u"], n_rb["p"]))]), \
+                            hstack([cor*op["v"]["u"]["mass_tilde_y"] + op["v"]["u"]["mass_tilde_y"]@cor_mat_vu, \
+                                    fric*op["v"]["v"]["mass_tilde_y"], \
+                                    np.zeros((n_rb["v"], n_rb["p"]))]),\
+                            hstack([al*dx_min*(fric*op["p"]["u"]["DxI_tilde"] + cor*op["p"]["u"]["DyI_tilde"] + op["p"]["u"]["DyI_tilde"]@cor_mat_pu), \
+                                    al*dx_min*(fric*op["DyI_tilde"] - cor*op["p"]["v"]["DxI_tilde"] - op["p"]["v"]["DxI_tilde"]@cor_mat_pv), \
+                                        np.zeros((n_rb["p"], n_rb["p"]))])])            
+            else:
+                S = vstack([hstack([fric*op["u"]["u"]["mass"], \
+                                    -(cor*op["u"]["v"]["mass"] + op["u"]["v"]["mass"]@cor_mat_uv), \
+                                    np.zeros((n_rb["u"], n_rb["p"]))]), \
+                            hstack([cor*op["v"]["u"]["mass"] + op["v"]["u"]["mass"]@cor_mat_vu, \
+                                    fric*op["v"]["v"]["mass"], \
+                                    np.zeros((n_rb["v"], n_rb["p"]))]),\
+                            hstack([al*dx_min*(fric*op["p"]["u"]["DxI"] + cor*op["p"]["u"]["DyI"] + op["p"]["u"]["DyI"]@cor_mat_pu), \
+                                    al*dx_min*(fric*op["DyI"] - cor*op["p"]["v"]["DxI"] - op["p"]["v"]["DxI"]@cor_mat_pv), \
+                                        np.zeros((n_rb["p"], n_rb["p"]))])])            
+        elif ROM.variable_split == "uv,p":
+            if self.GF:
+                S = vstack([hstack([fric*op["uv"]["uv"]["mass_tilde_xy"] 
+                                    + cor*op["uv"]["uv"]["mass_tilde_xy"]@op["uv"]["uv"]["perp"], \
+                                np.zeros((n_rb["uv"], n_rb["p"]))]), \
+                        hstack([al*dx_min*(fric*op["p"]["uv"]["DivI_tilde"] + cor*op["p"]["uv"]["DivI_tilde"]@op["uv"]["uv"]["perp"]), \
+                                    np.zeros((n_rb["p"], n_rb["p"]))])])   
+            else:
+                S = vstack([hstack([fric*op["uv"]["uv"]["mass"] 
+                                    + cor*op["uv"]["uv"]["mass"]@op["uv"]["uv"]["perp"], \
+                                np.zeros((n_rb["uv"], n_rb["p"]))]), \
+                        hstack([al*dx_min*(fric*op["p"]["uv"]["DivI"] + cor*op["p"]["uv"]["DivI"]@op["uv"]["uv"]["perp"]), \
+                                    np.zeros((n_rb["p"], n_rb["p"]))])])   
 
         
         if dirichlet_BC is not None:
@@ -676,9 +711,39 @@ class ImplicitEuler(DeCSpaceTimeSUPGSolver):
         all_sources_v = -theta_m@sub_sources['v']
         all_sources_p = -theta_m@sub_sources['p']
         #self.build_whole_q_vector(all_sources, vect_sources)
-        vect_sources[:] = -np.hstack([op["mass_tilde_x"]@all_sources_u + al*dx_min*op["DxM_tilde"]@all_sources_p,
-                                   op["mass_tilde_y"]@all_sources_v + al*dx_min*op["DyM_tilde"]@all_sources_p,
-                                   op["mass_tilde"]@all_sources_p] + al*dx_min*(op["DxI_tilde"]@all_sources_u + op["DyI_tilde"]@all_sources_v))
+        if self.GF:
+            vect_sources[:] = -np.hstack([op["mass_tilde_x"]@all_sources_u + al*dx_min*op["DxM_tilde"]@all_sources_p,
+                                       op["mass_tilde_y"]@all_sources_v + al*dx_min*op["DyM_tilde"]@all_sources_p,
+                                       op["mass_tilde"]@all_sources_p + al*dx_min*(op["DxI_tilde"]@all_sources_u + op["DyI_tilde"]@all_sources_v)])
+        else:
+            vect_sources[:] = -np.hstack([op["mass"]@all_sources_u + al*dx_min*op["DxI"]@all_sources_p,
+                                       op["mass"]@all_sources_v + al*dx_min*op["DyI"]@all_sources_p,
+                                       op["mass"]@all_sources_p + al*dx_min*(op["DxI"]@all_sources_u + op["DyI"]@all_sources_v)])
+
+    def define_vector_sources_implicit_MOR(self, ROM, sub_sources, vect_sources, theta_m, op, al, dx_min):
+        all_sources_p = -theta_m@sub_sources['p']
+        #self.build_whole_q_vector(all_sources, vect_sources)
+        if ROM.variable_split == "u,v,p":
+            all_sources_u = -theta_m@sub_sources['u']
+            all_sources_v = -theta_m@sub_sources['v']
+            if self.GF:
+                vect_sources[:] = -np.hstack([op["u"]["u"]["mass_tilde_x"]@all_sources_u + al*dx_min*op["u"]["p"]["DxM_tilde"]@all_sources_p,
+                                   op["v"]["v"]["mass_tilde_y"]@all_sources_v + al*dx_min*op["v"]["p"]["DyM_tilde"]@all_sources_p,
+                                   op["p"]["p"]["mass_tilde"]@all_sources_p + \
+                                    al*dx_min*(op["p"]["u"]["DxI_tilde"]@all_sources_u + op["p"]["v"]["DyI_tilde"]@all_sources_v)])
+            else:
+                vect_sources[:] = -np.hstack([op["u"]["u"]["mass"]@all_sources_u + al*dx_min*op["u"]["p"]["DxI"]@all_sources_p,
+                                   op["v"]["v"]["mass"]@all_sources_v + al*dx_min*op["v"]["p"]["DyI"]@all_sources_p,
+                                   op["p"]["p"]["mass"]@all_sources_p + \
+                                    al*dx_min*(op["p"]["u"]["DxI"]@all_sources_u + op["p"]["v"]["DyI"]@all_sources_v)])
+        elif ROM.variable_split == "uv,p":
+            all_sources_uv = -theta_m@sub_sources['uv']
+            if self.GF:
+                vect_sources[:] = -np.hstack([op["uv"]["uv"]["mass_tilde_xy"]@all_sources_uv + al*dx_min*op["uv"]["p"]["GradM_tilde"]@all_sources_p,
+                                   op["p"]["p"]["mass_tilde"]@all_sources_p + al*dx_min*op["p"]["uv"]["DvI_tilde"]@all_sources_uv])
+            else:
+                vect_sources[:] = -np.hstack([op["uv"]["uv"]["mass"]@all_sources_uv + al*dx_min*op["uv"]["p"]["GradI"]@all_sources_p,
+                                   op["p"]["p"]["mass"]@all_sources_p + al*dx_min*op["p"]["uv"]["DvI"]@all_sources_uv])
 
 
 class ImplicitDec(ImplicitEuler):
