@@ -1032,6 +1032,8 @@ class ImplicitDec(ImplicitEuler):
                         L = delete_row_in_coo_and_keep_diag_one(L, i + self.FEM2D.n_dof_tot)
                         L = delete_row_in_coo_and_keep_diag_one(L, i + 2*self.FEM2D.n_dof_tot)
 
+        return A, B, L 
+
 
     def build_whole_matrices_MOR(self, ROM, a, dx, dirichlet_BC = None):
         
