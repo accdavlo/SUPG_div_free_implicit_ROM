@@ -1015,6 +1015,24 @@ class ImplicitDec(ImplicitEuler):
         print("")
         return q_save, tt_save, comp_time, error, error_vertex
 
+    def build_whole_matrices(self,a,dx, dirichlet_BC = None):
+        A, B = super().build_whole_matrices(a,dx, dirichlet_BC)
+
+        L=sp.csr_matrix((self.FEM2D.n_dof_tot*3,self.FEM2D.n_dof_tot*3))
+        zero = sp.csr_matrix((self.FEM2D.n_dof_tot,self.FEM2D.n_dof_tot))
+
+        L = vstack([hstack([self.FEM2D.operator["lump_mass"], zero, zero]), \
+                      hstack([zero, self.FEM2D.operator["lump_mass"], zero]),\
+                      hstack([zero, zero, self.FEM2D.operator["lump_mass"]])])
+        
+        if dirichlet_BC is not None:
+            for bc_item in dirichlet_BC.keys():
+                    for i in dirichlet_BC[bc_item].indexes:
+                        L = delete_row_in_coo_and_keep_diag_one(L, i)
+                        L = delete_row_in_coo_and_keep_diag_one(L, i + self.FEM2D.n_dof_tot)
+                        L = delete_row_in_coo_and_keep_diag_one(L, i + 2*self.FEM2D.n_dof_tot)
+
+
     def build_whole_matrices_MOR(self, ROM, a, dx, dirichlet_BC = None):
         
         A, B = super().build_whole_matrices_MOR(ROM, a, dx, dirichlet_BC)
