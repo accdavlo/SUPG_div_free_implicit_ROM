@@ -730,7 +730,7 @@ class ConstantFlowTestCase(LinearAcoustic2D):
         return self.ics
     
 
-
+# GO: Do we need a reorganization for these routines?
 
 def lambda_vortex(r):
     lam = (20.*cos(r))/3. + (27.*cos(r)**2.)/16. + (4.*cos(r)**3)/9.+ cos(r)**4/16. + (20.*r*sin(r))/3. \

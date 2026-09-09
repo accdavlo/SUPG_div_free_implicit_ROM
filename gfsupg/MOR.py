@@ -40,6 +40,7 @@ class MOR:
         self.solver = solver
 
         self.tol = tol
+
         if self.solver.GF:
             self.GF_string = "GF"
         else:
@@ -49,9 +50,13 @@ class MOR:
         self.mu_offline = mu_offline
         # Generate (or read) the snapshots
         if self.only_final_time:
-            inputfile_name = os.path.join(self.problem.folderName,f"snapshots_final_time_offline_{self.GF_string}_ord_{self.solver.FEM2D.FEM1Dx.degree+1}_N_{self.FEM2D.geom.N_elem_dir[0]}.npz")
+            inputfile_name = os.path.join(self.problem.folderName, \
+                                          f"snapshots_final_time_offline_{self.GF_string}_ord_\
+                                          {self.solver.FEM2D.FEM1Dx.degree+1}_N_{self.FEM2D.geom.N_elem_dir[0]}.npz")
         else:
-            inputfile_name = os.path.join(self.problem.folderName,f"snapshots_offline_{self.GF_string}_ord_{self.solver.FEM2D.FEM1Dx.degree+1}_N_{self.FEM2D.geom.N_elem_dir[0]}.npz")
+            inputfile_name = os.path.join(self.problem.folderName, \
+                                          f"snapshots_offline_{self.GF_string}_ord_\
+                                          {self.solver.FEM2D.FEM1Dx.degree+1}_N_{self.FEM2D.geom.N_elem_dir[0]}.npz")
 
         # if file exists allow to load
         if load_sol and not os.path.exists(inputfile_name):
@@ -79,7 +84,8 @@ class MOR:
                         for var in self.problem.vars:
                             self.snapshots[var][:,i + idx_mu*self.solver.Nt_save] = qGF[var][i,:]
         
-            np.savez(inputfile_name, snapshots=self.snapshots, mu_offline=self.mu_offline, n_dof_x=self.FEM2D.n_dof_dir[0], n_dof_y=self.FEM2D.n_dof_dir[1])
+            np.savez(inputfile_name, snapshots=self.snapshots, mu_offline=self.mu_offline, \
+                     n_dof_x=self.FEM2D.n_dof_dir[0], n_dof_y=self.FEM2D.n_dof_dir[1])
         else:
             inputfile = np.load(inputfile_name, allow_pickle=True)
             self.snapshots = inputfile['snapshots'].item()
@@ -87,7 +93,8 @@ class MOR:
         self.compute_SVD(n_rb=n_rb)
 
     def compute_SVD(self, n_rb=None):
-        """Compute the SVD of the snapshots and truncate the basis according to the tolerance or the number of reduced basis specified by the user."""
+        """Compute the SVD of the snapshots and truncate the basis according 
+           to the tolerance or the number of reduced basis specified by the user."""
 
         # Compute SVD
         print("Computing the SVD")
@@ -147,6 +154,7 @@ class MOR:
                 else:
                     for i in range(q_FOM[var].shape[0]):
                         q_ROM[var][i,:] = self.basis[var].T@ q_FOM[var][i,:]
+        
         return q_ROM
     
     def reconstruct_from_ROM(self, q_ROM):
@@ -168,6 +176,7 @@ class MOR:
             if self.variable_split == "uv,p":
                 q_FOM["u"] = q_FOM["uv"][:,:self.FEM2D.n_dof_tot]
                 q_FOM["v"] = q_FOM["uv"][:,self.FEM2D.n_dof_tot:]
+        
         return q_FOM
 
     def run_online(self, params, compute_residuals=False):
@@ -176,7 +185,8 @@ class MOR:
 
         print("")
         print("Computing GF-SUPG MOR")
-        self.qGF_MOR, self.ttGF_MOR, self.comp_timeGF_MOR, self.error_MOR, _  = self.solver.solve_MOR(self, save_sol = True, with_error = True)
+        self.qGF_MOR, self.ttGF_MOR, self.comp_timeGF_MOR, self.error_MOR, _  = \
+            self.solver.solve_MOR(self, save_sol = True, with_error = True)
         
         # Check residuals
         if compute_residuals:
@@ -200,5 +210,7 @@ class MOR:
                     self.res[var][idx] = res_tmp[var]
                 for var in self.vars:
                     self.res_rb[var][idx] = res_rb_tmp[var]
+            
             return self.qGF_MOR, self.ttGF_MOR, self.comp_timeGF_MOR, self.error_MOR, self.res, self.res_rb
+        
         return self.qGF_MOR, self.ttGF_MOR, self.comp_timeGF_MOR, self.error_MOR
