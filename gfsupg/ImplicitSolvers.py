@@ -677,28 +677,30 @@ class ImplicitEuler(DeCSpaceTimeSUPGSolver):
             else:
                 mass_x, mass_y, DxI, DyI = "mass", "mass", "DxI", "DyI"
 
-            S = vstack([hstack([fric*op["u"]["u"][mass_x], \
-                                -cor_MOR("u", "v", mass_x), \
-                                np.zeros((n_rb["u"], n_rb["p"]))]), \
-                        hstack([cor_MOR("v", "u", mass_y), \
-                                fric*op["v"]["v"][mass_y], \
-                                np.zeros((n_rb["v"], n_rb["p"]))]), \
-                        hstack([al*dx_min*(fric*op["p"]["u"][DxI] + cor_MOR("p", "u", DyI)), \
-                                al*dx_min*(fric*op["p"]["v"][DyI] - cor_MOR("p", "v", DxI)), \
-                                np.zeros((n_rb["p"], n_rb["p"]))])])
+            # Reduced operators are dense: np.block keeps S dense, consistently with A and B
+            S = np.block([[fric*op["u"]["u"][mass_x], \
+                           -cor_MOR("u", "v", mass_x), \
+                           np.zeros((n_rb["u"], n_rb["p"]))], \
+                          [cor_MOR("v", "u", mass_y), \
+                           fric*op["v"]["v"][mass_y], \
+                           np.zeros((n_rb["v"], n_rb["p"]))], \
+                          [al*dx_min*(fric*op["p"]["u"][DxI] + cor_MOR("p", "u", DyI)), \
+                           al*dx_min*(fric*op["p"]["v"][DyI] - cor_MOR("p", "v", DxI)), \
+                           np.zeros((n_rb["p"], n_rb["p"]))]])
         elif ROM.variable_split == "uv,p":
+            # Reduced operators are dense: np.block keeps S dense, consistently with A and B
             if self.GF:
-                S = vstack([hstack([fric*op["uv"]["uv"]["mass_tilde_xy"]
-                                    + cor*op["uv"]["uv"]["mass_tilde_xy"]@op["uv"]["uv"]["perp"], \
-                                np.zeros((n_rb["uv"], n_rb["p"]))]), \
-                        hstack([al*dx_min*(fric*op["p"]["uv"]["DivI_tilde"] + cor*op["p"]["uv"]["DivI_tilde"]@op["uv"]["uv"]["perp"]), \
-                                    np.zeros((n_rb["p"], n_rb["p"]))])])
+                S = np.block([[fric*op["uv"]["uv"]["mass_tilde_xy"]
+                               + cor*op["uv"]["uv"]["mass_tilde_xy"]@op["uv"]["uv"]["perp"], \
+                               np.zeros((n_rb["uv"], n_rb["p"]))], \
+                              [al*dx_min*(fric*op["p"]["uv"]["DivI_tilde"] + cor*op["p"]["uv"]["DivI_tilde"]@op["uv"]["uv"]["perp"]), \
+                               np.zeros((n_rb["p"], n_rb["p"]))]])
             else:
-                S = vstack([hstack([fric*op["uv"]["uv"]["mass"]
-                                    + cor*op["uv"]["uv"]["mass"]@op["uv"]["uv"]["perp"], \
-                                np.zeros((n_rb["uv"], n_rb["p"]))]), \
-                        hstack([al*dx_min*(fric*op["p"]["uv"]["DivI"] + cor*op["p"]["uv"]["DivI"]@op["uv"]["uv"]["perp"]), \
-                                    np.zeros((n_rb["p"], n_rb["p"]))])])
+                S = np.block([[fric*op["uv"]["uv"]["mass"]
+                               + cor*op["uv"]["uv"]["mass"]@op["uv"]["uv"]["perp"], \
+                               np.zeros((n_rb["uv"], n_rb["p"]))], \
+                              [al*dx_min*(fric*op["p"]["uv"]["DivI"] + cor*op["p"]["uv"]["DivI"]@op["uv"]["uv"]["perp"]), \
+                               np.zeros((n_rb["p"], n_rb["p"]))]])
 
         
         if dirichlet_BC is not None:
