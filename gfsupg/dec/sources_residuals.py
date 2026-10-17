@@ -54,7 +54,7 @@ def define_sources_MOR_uv_p(op, all_sources, q_prev, sub_sources, theta_m, cor, 
 
     return all_sources
 
-def define_residuals(galer_residuals,q_prev,all_sources,m,op,c,dx_min ,al,theta_m,dt):
+def define_residuals(galer_residuals, q_prev, all_sources, m, op, c, dx_min, al, theta_m, dt):
     """Assemble Galerkin residuals (no stabilization) 
     for the standard (non-GF) formulation."""
 
@@ -73,7 +73,7 @@ def define_residuals(galer_residuals,q_prev,all_sources,m,op,c,dx_min ,al,theta_
 
     return galer_residuals
 
-def define_residuals_MOR(galer_residuals,q_prev,all_sources,m,op,c,dx_min,al,theta_m,dt):
+def define_residuals_MOR(galer_residuals, q_prev, all_sources, m, op, c, dx_min, al, theta_m, dt):
     """Assemble Galerkin residuals (no stabilization) 
     for the standard (non-GF) formulation."""
 
@@ -92,7 +92,7 @@ def define_residuals_MOR(galer_residuals,q_prev,all_sources,m,op,c,dx_min,al,the
 
     return galer_residuals
 
-def define_residuals_MOR_uv_p(galer_residuals, q_prev,all_sources,m,op,c,dx_min , al, theta_m, dt):
+def define_residuals_MOR_uv_p(galer_residuals, q_prev, all_sources, m, op, c, dx_min, al, theta_m, dt):
     """Assemble Galerkin residuals (no stabilization) 
     for the standard (non-GF) formulation."""
 
@@ -106,7 +106,7 @@ def define_residuals_MOR_uv_p(galer_residuals, q_prev,all_sources,m,op,c,dx_min 
 
     return galer_residuals
 
-def define_GF_residuals(galer_residuals,q_prev,all_sources,m,op,c,dx_min,al,theta_m,dt):
+def define_GF_residuals(galer_residuals, q_prev, all_sources, m, op, c, dx_min, al, theta_m, dt):
     """Assemble Galerkin residuals for the global-flux (GF) formulation."""
 
     galer_residuals["u"][:] = op["mass"]@(q_prev["u"][m,:] - q_prev["u"][0,:])/dt\
@@ -124,7 +124,7 @@ def define_GF_residuals(galer_residuals,q_prev,all_sources,m,op,c,dx_min,al,thet
 
     return galer_residuals
 
-def define_GF_residuals_MOR(galer_residuals,q_prev,all_sources,m,op,c,dx_min,al,theta_m,dt):
+def define_GF_residuals_MOR(galer_residuals, q_prev, all_sources, m, op, c, dx_min, al, theta_m, dt):
     """Assemble Galerkin residuals for the global-flux (GF) formulation."""
 
     galer_residuals["u"][:] = op["u"]["u"]["mass"]@(q_prev["u"][m,:] - q_prev["u"][0,:])/dt\
@@ -142,7 +142,7 @@ def define_GF_residuals_MOR(galer_residuals,q_prev,all_sources,m,op,c,dx_min,al,
 
     return galer_residuals
 
-def define_GF_residuals_MOR_uv_p(galer_residuals, q_prev,all_sources,m,op,c,dx_min , al, theta_m, dt):
+def define_GF_residuals_MOR_uv_p(galer_residuals, q_prev, all_sources, m, op, c, dx_min, al, theta_m, dt):
     """Assemble Galerkin residuals for the global-flux (GF) formulation."""
 
     galer_residuals["uv"][:] = op["uv"]["uv"]["mass"]@(q_prev["uv"][m,:]-q_prev["uv"][0,:])/dt\

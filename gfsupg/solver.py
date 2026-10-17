@@ -52,7 +52,7 @@ class DeCSpaceTimeSUPGSolver:
     high-order finite elements in space and DeC iterations in time.
     """
 
-    def __init__(self, problem, FEM2D, DeC, GF=False, stab = "SUPG", trick_second_der = False):
+    def __init__(self, problem, FEM2D, DeC, GF=False, stab = "SUPG", trick_second_der=False):
         self.FEM2D   = FEM2D
         self.geom    = self.FEM2D.geom 
         self.GF      = GF
@@ -96,7 +96,6 @@ class DeCSpaceTimeSUPGSolver:
 
         op["DxDx3"] = op["DxI"]@op["inv_lump"]@op["IDx"]
         op["DyDy3"] = op["DyI"]@op["inv_lump"]@op["IDy"]
-
 
         op["DxDx3_tilde"] = \
             op["DxI"]@\
@@ -295,9 +294,9 @@ class DeCSpaceTimeSUPGSolver:
     def set_Nt_max(self, Nt_max):
         self.Nt_max = Nt_max
 
-    def solver_set_parameters(self, stab_coeff = None, with_error = False, \
-              with_error_vertex = False, GF=None, CFL = None, \
-              stab = None, trick_second_der = False) :
+    def solver_set_parameters(self, stab_coeff=None, with_error=False, \
+                              with_error_vertex=False, GF=None, CFL=None, \
+                              stab=None, trick_second_der=False):
         if CFL is not None:
             self.set_CFL(CFL)
         if GF is not None:
@@ -316,25 +315,25 @@ class DeCSpaceTimeSUPGSolver:
             self.stab = stab
 
         if self.GF:
-            method_name = self.stab+"_GF"
-            error_name = "errors_"+self.stab+"_GF"
+            method_name = self.stab + "_GF"
+            error_name = "errors_" + self.stab + "_GF"
         else:
             method_name = self.stab
-            error_name = "errors_"+self.stab
+            error_name = "errors_" + self.stab
 
-        if self.problem.equations=="acoustics":
+        if self.problem.equations == "acoustics":
             if self.GF:
                 get_residual = define_GF_residuals
                 if self.stab == "SUPG":
                     get_stabilization = SUPG_GF_stabilization
-                elif self.stab =="OSS":
+                elif self.stab == "OSS":
                     get_stabilization = OSS_GF_stabilization
                 curl_stabilization = OSS_GF_curl_stabilization
             else:
                 get_residual = define_residuals
                 if self.stab == "SUPG":
                     get_stabilization = SUPG_stabilization
-                elif self.stab =="OSS":
+                elif self.stab == "OSS":
                     get_stabilization = OSS_stabilization
                 curl_stabilization = OSS_curl_stabilization
         else:
@@ -363,9 +362,9 @@ class DeCSpaceTimeSUPGSolver:
         return error, error_vertex, method_name, error_name, get_residual, get_stabilization, curl_stabilization
 
 
-    def solve(self, stab_coeff = None, with_error = False, \
-              with_error_vertex = False, GF=None, CFL = None, \
-              save_sol = False, stab = None, trick_second_der = False, curl_stab_flag = False):
+    def solve(self, stab_coeff=None, with_error=False, \
+              with_error_vertex=False, GF=None, CFL=None, \
+              save_sol=False, stab=None, trick_second_der=False, curl_stab_flag=False):
         """Run a full transient simulation.
 
         Parameters
@@ -406,8 +405,8 @@ class DeCSpaceTimeSUPGSolver:
         q_save = dict() 
 
         it = 0
-        t=0.
-        t_save  = 0.
+        t = 0.0
+        t_save  = 0.0
         it_save = 0
         L2 = dict()
         for var in self.problem.vars: # ("u", "v", "p")
@@ -431,15 +430,15 @@ class DeCSpaceTimeSUPGSolver:
         source = dict()
         if self.problem.source is not None:
             for var in self.problem.vars:
-                source[var] = self.FEM2D.evaluate_function(lambda x,y: self.problem.source[var](x,y,0.))
+                source[var] = self.FEM2D.evaluate_function(lambda x,y: self.problem.source[var](x,y,0.0))
         else:
             for var in self.problem.vars:
-                source[var] = self.FEM2D.evaluate_function(lambda x,y: 0.)
+                source[var] = self.FEM2D.evaluate_function(lambda x,y: 0.0)
 
         if self.problem.coriolis_non_uniform is not None:
             cor_nu = self.FEM2D.evaluate_function(self.problem.coriolis_non_uniform)
         else:
-            cor_nu = self.FEM2D.evaluate_function(lambda x,y: 0.)
+            cor_nu = self.FEM2D.evaluate_function(lambda x,y: 0.0)
 
         if self.problem.dirichlet is not None:
             dirichlet_BC = dict()
@@ -459,7 +458,7 @@ class DeCSpaceTimeSUPGSolver:
 
         #MZ main loop  
         tic = time.time()
-        while (t<self.problem.T_fin and it<self.Nt_max):
+        while (t < self.problem.T_fin and it < self.Nt_max):
             # Set dt
             dt =  self.CFL* self.geom.dx_min#self.CFL * self.problem.max_dt(q, self.geom.dx)
             c = self.problem.c 
@@ -500,8 +499,8 @@ class DeCSpaceTimeSUPGSolver:
             t=t+dt
             t_save+=dt
             if t_save > dt_save:
-                it_save+=1
-                t_save = 0.
+                it_save += 1
+                t_save = 0.0
                 for var in self.problem.vars:
                     q_save[var][it_save,:] = q_now[var][-1,:]
                 tt_save[it_save] = t
@@ -521,7 +520,6 @@ class DeCSpaceTimeSUPGSolver:
         tt_save = tt_save[:Nt_save+1] 
         comp_time = time.time() - tic 
         print("Simulation over in %1.2f seconds"%comp_time)
-
 
         if (with_error or with_error_vertex) and self.problem.exact is not None:
             print("Computing exact solution and error")
@@ -551,13 +549,12 @@ class DeCSpaceTimeSUPGSolver:
                 # A new file will be created
                 pickle.dump(sol_to_save, file)
         
-        
         print("")
         return q_save, tt_save, comp_time, error, error_vertex
     
-    def solve_MOR(self, ROM, stab_coeff = None, with_error = False, \
-                  with_error_vertex = False, GF = None, CFL = None, \
-                  save_sol = False, stab = None, curl_stab_flag = False):
+    def solve_MOR(self, ROM, stab_coeff=None, with_error=False, \
+                  with_error_vertex=False, GF=None, CFL=None, \
+                  save_sol=False, stab=None, curl_stab_flag=False):
         """Run a full transient simulation.
 
         Parameters
@@ -606,17 +603,17 @@ class DeCSpaceTimeSUPGSolver:
             self.stab = stab
 
         if self.GF:
-            method_name = self.stab+"_GF"
-            error_name = "errors_"+self.stab+"_GF"
+            method_name = self.stab + "_GF"
+            error_name = "errors_" + self.stab+"_GF"
         else:
             method_name = self.stab
-            error_name = "errors_"+self.stab
+            error_name = "errors_" + self.stab
 
-        if self.problem.equations=="acoustics":
+        if self.problem.equations == "acoustics":
             if self.GF:
                 if ROM.variable_split == "u,v,p":
                     get_residual = define_GF_residuals_MOR
-                elif ROM.variable_split =="uv,p":
+                elif ROM.variable_split == "uv,p":
                     get_residual = define_GF_residuals_MOR_uv_p
                 if self.stab == "SUPG":
                     if ROM.variable_split == "u,v,p":
@@ -626,12 +623,12 @@ class DeCSpaceTimeSUPGSolver:
             else:
                 if ROM.variable_split == "u,v,p":
                     get_residual = define_residuals_MOR
-                elif ROM.variable_split =="uv,p":
+                elif ROM.variable_split == "uv,p":
                     get_residual = define_residuals_MOR_uv_p
                 if self.stab == "SUPG":
                     if ROM.variable_split == "u,v,p":
                         get_stabilization = SUPG_stabilization_MOR
-                    elif ROM.variable_split =="uv,p":
+                    elif ROM.variable_split == "uv,p":
                         get_stabilization = SUPG_stabilization_MOR_uv_p
         else:
             raise NotImplementedError("Equations %s not implemented in solve in DeCSpaceTimeSolver"%self.problem.equations)
@@ -656,8 +653,8 @@ class DeCSpaceTimeSUPGSolver:
         q_save = dict() 
 
         it = 0
-        t = 0.
-        t_save  = 0.
+        t = 0.0
+        t_save  = 0.0
         it_save = 0
         L2 = dict()
         for var in ROM.vars: # ("u", "v", "p")
@@ -682,17 +679,17 @@ class DeCSpaceTimeSUPGSolver:
         source_FOM = dict()
         if self.problem.source is not None:
             for var in self.problem.vars:
-                source_FOM[var] = self.FEM2D.evaluate_function(lambda x,y: self.problem.source[var](x,y,0.))
+                source_FOM[var] = self.FEM2D.evaluate_function(lambda x,y: self.problem.source[var](x,y,0.0))
         else:
             for var in self.problem.vars:
-                source_FOM[var] = self.FEM2D.evaluate_function(lambda x,y: 0.)
+                source_FOM[var] = self.FEM2D.evaluate_function(lambda x,y: 0.0)
 
         source = ROM.project_onto_ROM(source_FOM)
 
         if self.problem.coriolis_non_uniform is not None:
             cor_nu = self.FEM2D.evaluate_function(self.problem.coriolis_non_uniform)
         else:
-            cor_nu = self.FEM2D.evaluate_function(lambda x,y: 0.)
+            cor_nu = self.FEM2D.evaluate_function(lambda x,y: 0.0)
 
         if self.problem.dirichlet is not None:
             raise NotImplementedError("Not implemented boundary condition for MOR solver")
@@ -701,11 +698,10 @@ class DeCSpaceTimeSUPGSolver:
         for ivar, var in enumerate(ROM.vars):
             sub_sources[var] = np.zeros_like(q_now[var])
 
-
         tic = time.time()
         while (t<self.problem.T_fin and it<self.Nt_max):
             # Set dt
-            dt =  self.CFL* self.geom.dx_min#self.CFL * self.problem.max_dt(q, self.geom.dx)
+            dt = self.CFL* self.geom.dx_min#self.CFL * self.problem.max_dt(q, self.geom.dx)
             c = self.problem.c
 
             # Initialize variables
@@ -748,12 +744,12 @@ class DeCSpaceTimeSUPGSolver:
             for var in ROM.vars:
                 q[var] = q_now[var][-1,:]
 
-            it+=1
-            t=t+dt
-            t_save+=dt
+            it += 1
+            t = t+dt
+            t_save += dt
             if t_save > dt_save:
-                it_save+=1
-                t_save = 0.
+                it_save += 1
+                t_save = 0.0
                 for var in ROM.vars:
                     q_save[var][it_save,:] = q_now[var][-1,:]
                 tt_save[it_save] = t
@@ -764,7 +760,7 @@ class DeCSpaceTimeSUPGSolver:
             
 
         # Final step to save
-        it_save+=1
+        it_save += 1
         Nt_save = it_save
         for var in ROM.vars:
             q_save[var][it_save,:] = q_now[var][-1,:]
@@ -773,7 +769,6 @@ class DeCSpaceTimeSUPGSolver:
         tt_save = tt_save[:Nt_save+1] 
         comp_time = time.time() - tic 
         print("Simulation over in %1.2f seconds"%comp_time)
-
 
         if (with_error or with_error_vertex) and self.problem.exact is not None:
             print("Computing exact solution and error")
@@ -796,11 +791,11 @@ class DeCSpaceTimeSUPGSolver:
 
             sol_to_save = [q_final, tt_save[-1], comp_time, error, error_vertex ]
             # Open a file and use dump()
-            savefile_name = self.problem.folderName+"/final_sol_MOR_"+method_name+"_ord_%d_N_%04d.pkl"%(self.FEM2D.FEM1Dx.degree+1,self.FEM2D.geom.N_elem_dir[0])
+            savefile_name = self.problem.folderName + "/final_sol_MOR_" + method_name + \
+                            "_ord_%d_N_%04d.pkl"%(self.FEM2D.FEM1Dx.degree+1,self.FEM2D.geom.N_elem_dir[0])
             with open(savefile_name, 'wb') as file:
                 # A new file will be created
                 pickle.dump(sol_to_save, file)
-        
         
         print("")
         return q_save, tt_save, comp_time, error, error_vertex

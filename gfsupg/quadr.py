@@ -1,6 +1,6 @@
 import numpy as np
 
-def lagrange_basis(nodes,x,k):
+def lagrange_basis(nodes, x, k):
     y = np.zeros(x.size)
     for ix, xi in enumerate(x):
         tmp = [(xi-nodes[j])/(nodes[k] - nodes[j])  for j in range(len(nodes)) if j!=k]
@@ -9,7 +9,7 @@ def lagrange_basis(nodes,x,k):
             y[ix] = y[ix]*tmp[z]
     return y
 
-def lagrange_basis_deriv(nodes,x,k):
+def lagrange_basis_deriv(nodes, x, k):
     y = np.zeros(x.size)
     for ix, xi in enumerate(x):
         for i in range(len(nodes)):
@@ -37,7 +37,7 @@ def equispaced(order):
 
     return nodes, w
 
-def lglnodes(n,epss=1e-15):
+def lglnodes(n, epss=1e-15):
     '''
     Python translation of lglnodes.m
     Computes the Legendre-Gauss-Lobatto nodes, weights and the LGL Vandermonde
@@ -115,7 +115,7 @@ def lgwt(N):
     N  = N-1
     N1 = N+1
     N2 = N+2
-    xu=np.linspace(-1,1,N1)
+    xu = np.linspace(-1,1,N1)
     # Initial guess
     zz = np.linspace(0,N,N1)
     y=np.cos((2.0*zz + 1.0)*np.pi/(2*N + 2)) + (0.27/N1)*np.sin(np.pi*xu*N/N2)

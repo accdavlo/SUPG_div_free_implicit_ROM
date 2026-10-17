@@ -18,7 +18,7 @@ class FiniteElement1D:
     deriv_j  matrix D_ij  = int phi_i phi_j'
     deriv_ij matrix D_ij  = int phi_i' phi_j'
     """
-    def __init__(self, degree, nodes_type="gaussLobatto", quad_type = "gaussLegendre"):
+    def __init__(self, degree, nodes_type="gaussLobatto", quad_type="gaussLegendre"):
         self.degree = degree
         self.N_dof  = self.degree + 1
 
@@ -120,4 +120,3 @@ class FiniteElement1D:
             self.stencil[matrix_name][:,:self.degree]                =  self.stencil_long[matrix_name][:,-1,:]
             self.stencil[matrix_name][:,self.degree:2*self.degree]   =  self.stencil_long[matrix_name][:,0,:]
             self.stencil[matrix_name][:,2*self.degree:3*self.degree] =  self.stencil_long[matrix_name][:,1,:]
-

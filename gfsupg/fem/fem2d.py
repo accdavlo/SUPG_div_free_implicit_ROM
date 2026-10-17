@@ -551,12 +551,12 @@ class Scipy2DFEM:
                 vstack([hstack([self.operator["inv_lump"],zero]),\
                         hstack([zero, self.operator["inv_lump"]])]) @ basis["uv"]
 
-    def evaluate_function(self,funct):
+    def evaluate_function(self, funct):
         vfunc = np.vectorize(funct)
         
         return vfunc(self.mesh_points[:,0],self.mesh_points[:,1])
     
-    def evaluate_function_vertex(self,funct):
+    def evaluate_function_vertex(self, funct):
         vfunc = np.vectorize(funct)
         
         return vfunc(self.mesh_vertexes[:,0],self.mesh_vertexes[:,1])
@@ -630,7 +630,7 @@ class Scipy2DFEM:
                 - basis["v"].T@(self.operator["mass_tilde_y"]@source["v"])) \
                 / self.geom.dx[1]
     
-        elif ROM.variable_split=="uv,p":
+        elif ROM.variable_split == "uv,p":
             res_rb["p"] = (self.operator_MOR["p"]["uv"]["IDiv_tilde"]@q["uv"]\
                 - self.operator_MOR["p"]["p"]["mass_tilde"]@source["p"]) \
                 / self.geom.dx[0]/self.geom.dx[1]
@@ -720,7 +720,7 @@ class Scipy2DFEM:
         
         return div_norms
 
-    def divfree_projection_optimization(self, IC_vect, problem, method = "trust-constr"):
+    def divfree_projection_optimization(self, IC_vect, problem, method="trust-constr"):
         div_oper = hstack([self.operator["IDx_tilde"],self.operator["IDy_tilde"]] )
         div_oper = div_oper.tocoo()
 
@@ -769,8 +769,8 @@ class Scipy2DFEM:
                                     self.operator["DyM_tilde"]@source_p])
 
         mass_oper = vstack([
-            hstack([   self.operator["mass"], 0.*self.operator["mass"]]),\
-            hstack([0.*self.operator["mass"],    self.operator["mass"]])
+            hstack([    self.operator["mass"], 0.0*self.operator["mass"]]),\
+            hstack([0.0*self.operator["mass"],     self.operator["mass"]])
         ])
 
         if source_p is None:
@@ -930,7 +930,7 @@ class Scipy2DFEM:
 
         return q_vec
     
-    def compute_sources(self,q_vec, problem, time=0.):
+    def compute_sources(self,q_vec, problem, time=0.0):
         source = dict()
         if problem.source is not None:
             for var in problem.vars:
@@ -1037,4 +1037,3 @@ class Scipy2DFEM:
         p_vec = self.mat_to_vect(p_new)
         
         return p_vec
-

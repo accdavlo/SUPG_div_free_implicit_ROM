@@ -52,9 +52,9 @@ def DeC_one_step(problem, DeC, FEM2D, dt, al, stab_curl_coeff, q_prev, L2, q_now
                     q_now[var][m,dirichlet_BC[bc_item].indexes] = \
                         dirichlet_BC[bc_item].dirichlet_vector[var]
 
-def DeC_one_step_MOR(ROM,problem, DeC, FEM2D, dt, al, stab_curl_coeff, q_prev, L2, q_now,\
+def DeC_one_step_MOR(ROM, problem, DeC, FEM2D, dt, al, stab_curl_coeff, q_prev, L2, q_now,\
                      sub_sources, coriolis_not_uni, get_residual, get_stabilization, curl_stabilization,\
-                     dirichlet_BC = None, curl_stab_flag = False):
+                     dirichlet_BC=None, curl_stab_flag=False):
     """Perform one DeC correction sweep over all sub-nodes.
 
     This routine assembles sources, residuals, and stabilization terms for each
@@ -95,4 +95,3 @@ def DeC_one_step_MOR(ROM,problem, DeC, FEM2D, dt, al, stab_curl_coeff, q_prev, L
 
         if dirichlet_BC is not None:
             raise NotImplementedError("Not implemented bcs in the MOR DeC solver")
-

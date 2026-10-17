@@ -3,7 +3,7 @@
 import numpy as np
 
 
-def SUPG_stabilization(all_stabs,q_prev,all_sources,m,op,c,dx_min,al,theta_m,dt):
+def SUPG_stabilization(all_stabs, q_prev, all_sources, m, op, c, dx_min, al, theta_m, dt):
     """Compute SUPG stabilization contributions for the standard formulation."""
 
     all_stabs["u"][:] = \
@@ -29,7 +29,7 @@ def SUPG_stabilization(all_stabs,q_prev,all_sources,m,op,c,dx_min,al,theta_m,dt)
     
     return all_stabs
 
-def SUPG_stabilization_MOR(all_stabs,q_prev,all_sources,m,op,c,dx_min,al,theta_m,dt):
+def SUPG_stabilization_MOR(all_stabs, q_prev, all_sources, m, op, c, dx_min, al, theta_m, dt):
     """Compute SUPG stabilization contributions for the standard formulation."""
 
     all_stabs["u"][:] = \
@@ -54,7 +54,7 @@ def SUPG_stabilization_MOR(all_stabs,q_prev,all_sources,m,op,c,dx_min,al,theta_m
     
     return all_stabs
 
-def SUPG_stabilization_MOR_uv_p(all_stabs,q_prev,all_sources,m,op,c,dx_min,al,theta_m,dt):          
+def SUPG_stabilization_MOR_uv_p(all_stabs, q_prev, all_sources, m, op, c, dx_min, al,theta_m,dt):
     """Compute SUPG stabilization contributions for the standard formulation."""
 
     all_stabs["uv"][:] = \
@@ -69,7 +69,7 @@ def SUPG_stabilization_MOR_uv_p(all_stabs,q_prev,all_sources,m,op,c,dx_min,al,th
     
     return all_stabs
 
-def SUPG_GF_stabilization(all_stabs,q_prev,all_sources,m,op,c,dx_min,al,theta_m,dt):
+def SUPG_GF_stabilization(all_stabs, q_prev, all_sources, m, op, c, dx_min, al, theta_m, dt):
     """Compute SUPG stabilization contributions for the GF formulation."""
 
     all_stabs["u"][:] = \
@@ -94,7 +94,7 @@ def SUPG_GF_stabilization(all_stabs,q_prev,all_sources,m,op,c,dx_min,al,theta_m,
     
     return all_stabs
 
-def SUPG_GF_stabilization_MOR(all_stabs, q_prev,all_sources,m,op,c,dx_min , al, theta_m, dt):
+def SUPG_GF_stabilization_MOR(all_stabs, q_prev, all_sources, m, op, c, dx_min, al, theta_m, dt):
     """Compute SUPG stabilization contributions for the GF formulation."""
 
     all_stabs["u"][:] = \
@@ -119,7 +119,7 @@ def SUPG_GF_stabilization_MOR(all_stabs, q_prev,all_sources,m,op,c,dx_min , al, 
     
     return all_stabs
 
-def SUPG_GF_stabilization_MOR_uv_p(all_stabs, q_prev,all_sources,m,op,c,dx_min , al, theta_m, dt):
+def SUPG_GF_stabilization_MOR_uv_p(all_stabs, q_prev, all_sources, m, op, c, dx_min, al, theta_m, dt):
     """Compute SUPG stabilization contributions for the GF formulation."""
 
     all_stabs["uv"][:] = \
@@ -135,7 +135,7 @@ def SUPG_GF_stabilization_MOR_uv_p(all_stabs, q_prev,all_sources,m,op,c,dx_min ,
     return all_stabs
 
 #GO: stabilization missing for MOR
-def OSS_stabilization(all_stabs, q_prev,all_sources,m,op,c,dx_min , al, theta_m, dt):
+def OSS_stabilization(all_stabs, q_prev, all_sources, m, op, c, dx_min, al, theta_m, dt):
     """Compute OSS stabilization for the standard formulation."""
 
     all_stabs["u"][:] = \
@@ -152,7 +152,7 @@ def OSS_stabilization(all_stabs, q_prev,all_sources,m,op,c,dx_min , al, theta_m,
     return all_stabs
 
 #GO: stabilization missing for MOR
-def OSS_GF_stabilization(all_stabs, q_prev,all_sources,m,op,c,dx_min , al, theta_m, dt):
+def OSS_GF_stabilization(all_stabs, q_prev, all_sources, m, op, c, dx_min, al, theta_m, dt):
     """Compute OSS stabilization for the GF formulation."""
 
     all_stabs["u"][:] = \
@@ -181,7 +181,7 @@ def OSS_GF_stabilization(all_stabs, q_prev,all_sources,m,op,c,dx_min , al, theta
     return all_stabs
 
 #GO: stabilization missing for MOR
-def OSS_curl_stabilization(all_stabs, q_prev,all_sources,m,op,c,dx_min , al, theta_m, dt):
+def OSS_curl_stabilization(all_stabs, q_prev, all_sources, m, op, c, dx_min, al, theta_m, dt):
     """Compute optional curl-targeted OSS stabilization (standard operators)."""
 
     beta_m = np.sum(theta_m)
@@ -194,7 +194,7 @@ def OSS_curl_stabilization(all_stabs, q_prev,all_sources,m,op,c,dx_min , al, the
     
     return all_stabs
 
-def OSS_GF_curl_stabilization(all_stabs, q_prev,all_sources,m,op,c,dx_min , al, theta_m, dt):
+def OSS_GF_curl_stabilization(all_stabs, q_prev, all_sources, m, op, c, dx_min, al, theta_m, dt):
     """Compute optional curl-targeted OSS stabilization (GF operators)."""
 
     beta_m = np.sum(theta_m)

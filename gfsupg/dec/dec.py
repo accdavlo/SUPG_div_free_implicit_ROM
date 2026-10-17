@@ -36,5 +36,5 @@ class DeC:
             w_m = int_w*(nodes[m])
             for r in range(self.n_subNodes):
                 self.theta[m,r] = np.sum(lagrange_basis(nodes,nodes_m,r)*w_m)
+
         return self.theta, self.beta
-    
