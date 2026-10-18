@@ -238,7 +238,7 @@ class SmoothVortexTestCase(LinearAcoustic2D):
             self.base_test = base_str
 
             if self.pert_type != "an":
-                self.steady_state_test = type(self)(is_long=True)
+                self.steady_state_test = type(self)(is_long=True, is_smaller=self.is_smaller)
 
             x0_p, y0_p = 0.4, 0.43
             if self.is_smaller and self.pert_type != "an":
@@ -276,15 +276,18 @@ class SmoothVortexTestCase(LinearAcoustic2D):
 
 class SmoothVortexTestCaseParam(LinearAcoustic2D):
     def __init__(self, basis_name="smooth_vortex_param", pert_coeff=None, is_long=False, pert_type=None, is_smaller=False, \
-                 g=9.81, r0=0.45, coeff_exp=1):
+                 g=9.81, r0=0.45, coeff_exp=1, is_dirichlet=False):
         self.is_long = is_long
         self.pert_type = pert_type
         self.is_smaller = is_smaller
+        self.is_dirichlet = is_dirichlet # Dirichlet conditions on the whole boundary (values of the initial condition)
+        if is_smaller and is_dirichlet:
+            raise ValueError("The periodic smooth vortex (is_smaller=True) has no Dirichlet conditions")
         self.basis_name = basis_name
         self.g = g
         self.r0 = r0
         self.coeff_exp = coeff_exp
-        name = ("smaller_" if self.is_smaller else "") + f"{basis_name}_{'long' if is_long else 'short'}" + (f"_{pert_type}_perturbation" if pert_type else "")
+        name = ("smaller_" if self.is_smaller else "") + f"{basis_name}_{'long' if is_long else 'short'}" + (f"_{pert_type}_perturbation" if pert_type else "") + ("_dirichlet" if is_dirichlet else "")
 
         T_fin = 100.0 if is_long else (0.35 if pert_type else 1.0)
         super().__init__(name, pert_coeff, T_fin)
@@ -301,7 +304,7 @@ class SmoothVortexTestCaseParam(LinearAcoustic2D):
         self._setup_geometry_folder()
 
     def dirichlet_BC(self):
-        if self.pert_type == "opt":
+        if self.is_dirichlet or self.pert_type == "opt":
             self.dirichlet = {"all": self.vars}
         else:
             self.dirichlet = None
@@ -326,7 +329,8 @@ class SmoothVortexTestCaseParam(LinearAcoustic2D):
             self.base_test = base_str
 
             if self.pert_type != "an":
-                self.steady_state_test = type(self)(is_long=True)
+                self.steady_state_test = type(self)(is_long=True, is_smaller=self.is_smaller, \
+                                                    g=self.g, r0=self.r0, coeff_exp=self.coeff_exp, is_dirichlet=self.is_dirichlet)
 
             x0_p, y0_p = 0.4, 0.43
             if self.is_smaller and self.pert_type != "an":
@@ -365,6 +369,8 @@ class SmoothVortexTestCaseParam(LinearAcoustic2D):
         self.g = mu[0]
         self.r0 = mu[1]
         self.coeff_exp = mu[2]
+        if hasattr(self, "steady_state_test"):
+            self.steady_state_test.set_parameters(mu)
 
 class ShuVortexTestCaseParam(LinearAcoustic2D):
     def __init__(self, basis_name="shu_vortex_param", pert_coeff=None, is_long=False, pert_type=None, is_smaller=False, x0=0.5, y0=0.5, r0_param=0.1):
@@ -410,7 +416,8 @@ class ShuVortexTestCaseParam(LinearAcoustic2D):
             self.with_perturbation = True
 
             if self.pert_type != "an":
-                self.steady_state_test = type(self)(is_long=True)
+                self.steady_state_test = type(self)(is_long=True, is_smaller=self.is_smaller, \
+                                                    x0=self.x0, y0=self.y0, r0_param=self.r0_param)
 
             x0_p, y0_p = 0.4, 0.43
             if self.is_smaller and self.pert_type != "an":
@@ -443,16 +450,21 @@ class ShuVortexTestCaseParam(LinearAcoustic2D):
     def set_parameters(self, mu):
         self.x0 = mu[0]
         self.y0 = mu[1]
-        self.r0_param = mu[2]   
+        self.r0_param = mu[2]
+        if hasattr(self, "steady_state_test"):
+            self.steady_state_test.set_parameters(mu)
 
 
 class SourceVortexTestCase(LinearAcoustic2D):
-    def __init__(self, basis_name="source_vortex", pert_coeff=None, is_long=False, pert_type=None, is_dirichlet=False):
+    def __init__(self, basis_name="source_vortex", pert_coeff=None, is_long=False, pert_type=None, is_dirichlet=False, is_smaller=False):
         self.is_long = is_long
         self.pert_type = pert_type
         self.is_dirichlet = is_dirichlet
+        self.is_smaller = is_smaller # periodic square, as in SmoothVortexTestCase
+        if is_smaller and (is_dirichlet or pert_type == "opt"):
+            raise ValueError("The periodic source vortex (is_smaller=True) has no Dirichlet conditions")
         self.basis_name = basis_name
-        name = f"{basis_name}_{'long' if is_long else 'short'}" + (f"_{pert_type}_perturbation" if pert_type else "") + (f"_dirichlet" if is_dirichlet else "")
+        name = ("smaller_" if self.is_smaller else "") + f"{basis_name}_{'long' if is_long else 'short'}" + (f"_{pert_type}_perturbation" if pert_type else "") + (f"_dirichlet" if is_dirichlet else "")
 
         T_fin = 100.0 if is_long else (0.35 if pert_type else 1.0)
         super().__init__(name, pert_coeff, T_fin)
@@ -472,10 +484,14 @@ class SourceVortexTestCase(LinearAcoustic2D):
         }
 
     def define_geom(self):
-        self.geometry_name = "square"
+        if self.is_smaller:
+            self.geometry_name = "periodic_square"
+            self.BC = np.array([0, 0, 0, 0], dtype=np.int32)
+        else:
+            self.geometry_name = "square"
+            self.BC = np.array([1, 1, 1, 1 if (self.is_dirichlet or self.pert_type == "opt") else 2], dtype=np.int32)
         self.xL = np.array([0., 0.], dtype=np.float64)
         self.xR = np.array([1., 1.], dtype=np.float64)
-        self.BC = np.array([1, 1, 1, 1 if (self.is_dirichlet or self.pert_type == "opt") else 2], dtype=np.int32)
         self._setup_geometry_folder()
 
     def dirichlet_BC(self):
@@ -496,7 +512,7 @@ class SourceVortexTestCase(LinearAcoustic2D):
             self.with_perturbation = True
             self.base_test = "source_vortex_long"
             if self.pert_type != "an":
-                self.steady_state_test = type(self)(is_long=True)
+                self.steady_state_test = type(self)(is_long=True, is_smaller=self.is_smaller, is_dirichlet=self.is_dirichlet)
 
             x0_p, y0_p = 0.4, 0.43
             delta_p = lambda x, y: self.pert_coeff * pressure_perturbation_function(x, y, x0_p, y0_p)
@@ -515,6 +531,12 @@ class SourceVortexTestCase(LinearAcoustic2D):
             "p": lambda x, y, t: self.ics["p"](x, y)
         }
         return self.exact
+
+    def set_parameters(self, mu):
+        # Source amplitude: the lambdas in IC and source read it at evaluation time
+        self.coefficient_source = mu[0]
+        if hasattr(self, "steady_state_test"):
+            self.steady_state_test.set_parameters(mu)
 
 
 class MovingSourceTestCase(LinearAcoustic2D):

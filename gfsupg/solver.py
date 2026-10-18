@@ -214,6 +214,9 @@ class DeCSpaceTimeSUPGSolver:
         if hasattr(self.problem,"perturbation") and hasattr(self.problem,"steady_state_test"):
             if "num" in self.problem.name:
                 # Load numerical solution at the steady state
+                # NOTE: the file name depends only on order and mesh, not on the problem parameters:
+                # after set_parameters, the loaded equilibrium is the one of the parameters used when
+                # the file was saved (the other perturbation types recompute the equilibrium).
                 base_folder=self.problem.steady_state_test.folderName
                 order = self.FEM2D.FEM1Dx.degree+1
                 N     = self.FEM2D.geom.N_elem_dir[0]

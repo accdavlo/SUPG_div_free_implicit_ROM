@@ -141,16 +141,18 @@ class MOR:
         q_ROM = dict()
         if q_FOM["p"].ndim==1:
             if self.variable_split == "uv,p":
-                q_FOM["uv"] = np.concatenate((q_FOM["u"], q_FOM["v"]))
+                # New dict: the input (e.g. a source evaluated in place) is not modified
+                q_FOM = {**q_FOM, "uv": np.concatenate((q_FOM["u"], q_FOM["v"]))}
             for var in self.vars:
                 q_ROM[var] = self.basis[var].T@ q_FOM[var]
         else:
             for var in self.vars:
-                q_ROM[var] = np.zeros([q_FOM[var].shape[0], self.n_rb[var]], dtype=np.float64)
- 
+                n_times = q_FOM["p"].shape[0]
+                q_ROM[var] = np.zeros([n_times, self.n_rb[var]], dtype=np.float64)
+
                 if var == "uv":
-                    for i in range(q_FOM[var].shape[0]):
-                        q_ROM[var][i,:] = self.basis[var].T@ np.vstack([q_FOM["u"][i,:],q_FOM["v"][i,:]])
+                    for i in range(n_times):
+                        q_ROM[var][i,:] = self.basis[var].T @ np.concatenate((q_FOM["u"][i,:], q_FOM["v"][i,:]))
                 else:
                     for i in range(q_FOM[var].shape[0]):
                         q_ROM[var][i,:] = self.basis[var].T@ q_FOM[var][i,:]
