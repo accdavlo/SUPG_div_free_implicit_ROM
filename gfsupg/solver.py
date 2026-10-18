@@ -288,6 +288,65 @@ class DeCSpaceTimeSUPGSolver:
                                         self.problem.perturbation[var])
 
 
+    def set_dirichlet_lifting_residual_MOR(self, ROM, alpha, coriolis_not_uniform):
+        """Project the static Dirichlet lifting residual onto the ROM space.
+
+        The constrained ROM evolves the homogeneous component ``V q_rb`` and
+        reconstructs the physical state as ``q_D + V q_rb``.  Since the
+        acoustic operator is linear, the residual of the static lifting q_D
+        is an affine contribution that must be added to every DeC substep.
+        """
+        ROM.lifting_residual = {
+            var: np.zeros((self.DeC.n_subNodes, self.FEM2D.n_dof_rb[var]))
+            for var in ROM.vars
+        }
+        if not ROM.has_dirichlet:
+            return
+
+        if ROM.dirichlet_lifting is None:
+            raise RuntimeError("Dirichlet lifting has not been initialized")
+        if self.stab != "SUPG":
+            raise NotImplementedError("Dirichlet lifting is currently implemented for SUPG MOR")
+
+        q_lifting = {
+            var: np.repeat(ROM.dirichlet_lifting[var][None, :], self.DeC.n_subNodes, axis=0)
+            for var in self.problem.vars
+        }
+        zero_sources = {var: np.zeros_like(q_lifting[var]) for var in self.problem.vars}
+        all_sources = {var: np.empty(self.FEM2D.n_dof_tot) for var in self.problem.vars}
+        gal_residuals = {var: np.empty(self.FEM2D.n_dof_tot) for var in self.problem.vars}
+        all_stabs = {var: np.empty(self.FEM2D.n_dof_tot) for var in self.problem.vars}
+
+        if self.GF:
+            get_residual = define_GF_residuals
+            get_stabilization = SUPG_GF_stabilization
+        else:
+            get_residual = define_residuals
+            get_stabilization = SUPG_stabilization
+
+        for m in range(1, self.DeC.n_subNodes):
+            theta_m = self.DeC.theta[m, :]
+            define_sources(
+                all_sources, q_lifting, zero_sources, theta_m,
+                self.problem.coriolis, coriolis_not_uniform, self.problem.friction,
+            )
+            get_residual(
+                gal_residuals, q_lifting, all_sources, m, self.FEM2D.operator,
+                self.problem.c, self.FEM2D.geom.dx_min, alpha, theta_m, 1.0,
+            )
+            get_stabilization(
+                all_stabs, q_lifting, all_sources, m, self.FEM2D.operator,
+                self.problem.c, self.FEM2D.geom.dx_min, alpha, theta_m, 1.0,
+            )
+            lifting_residual = {
+                var: gal_residuals[var] + all_stabs[var]
+                for var in self.problem.vars
+            }
+            projected = ROM.project_onto_ROM(lifting_residual, apply_lifting=False)
+            for var in ROM.vars:
+                ROM.lifting_residual[var][m, :] = projected[var]
+
+
     def set_CFL(self, CFL):
         self.CFL = CFL
         print("CFL number = %g"%self.CFL)
@@ -670,6 +729,7 @@ class DeCSpaceTimeSUPGSolver:
         q_prev = dict()
         q_now  = dict()
         q      = dict()
+        ROM.set_dirichlet_lifting(self.ic_vect)
         ic_ROM = ROM.project_onto_ROM(self.ic_vect)
         for var in ROM.vars:
             q_prev[var] = np.zeros((self.DeC.n_subNodes, self.FEM2D.n_dof_rb[var]))
@@ -689,15 +749,14 @@ class DeCSpaceTimeSUPGSolver:
             for var in self.problem.vars:
                 source_FOM[var] = self.FEM2D.evaluate_function(lambda x,y: 0.0)
 
-        source = ROM.project_onto_ROM(source_FOM)
+        source = ROM.project_onto_ROM(source_FOM, apply_lifting=False)
 
         if self.problem.coriolis_non_uniform is not None:
             cor_nu = self.FEM2D.evaluate_function(self.problem.coriolis_non_uniform)
         else:
             cor_nu = self.FEM2D.evaluate_function(lambda x,y: 0.0)
 
-        if self.problem.dirichlet is not None:
-            raise NotImplementedError("Not implemented boundary condition for MOR solver")
+        self.set_dirichlet_lifting_residual_MOR(ROM, al, cor_nu)
 
         sub_sources = dict()
         for ivar, var in enumerate(ROM.vars):
@@ -719,7 +778,7 @@ class DeCSpaceTimeSUPGSolver:
                     for var in self.problem.vars:
                         source_FOM[var] = self.FEM2D.evaluate_function(lambda x,y: self.problem.source[var](x,y,t+dt*self.DeC.beta[i]))
 
-                    source = ROM.project_onto_ROM(source_FOM)
+                    source = ROM.project_onto_ROM(source_FOM, apply_lifting=False)
                     for var in ROM.vars:
                         sub_sources[var][i,:] = source[var]
 

@@ -218,7 +218,10 @@ source = source_vector(problem, FEM2D, 0.0)
 # Retaining all modes turns this into a direct consistency test of the
 # projected source assembly rather than a test of POD compression.
 n_snapshot_columns = MOR_instance.snapshots["p"].shape[1]
-# ("uv" has 2*n_dof rows)
+# All the snapshot columns are retained ("uv" has 2*n_dof rows). Unlike in test_SUPG_MOR_dirichlet.py,
+# where the basis is restricted to the numerical rank of the snapshots, the numerical null-space modes
+# are harmless here: no constrained rows are removed from the basis, which stays orthonormal, and the
+# source column remains exactly representable.
 MOR_instance.compute_SVD(n_rb={var: min((2 if var == "uv" else 1)*FEM2D.n_dof_tot, n_snapshot_columns)
                                for var in MOR_instance.vars})
 
@@ -267,7 +270,7 @@ for i, tol in enumerate(tols):
 print("\nTolerance study (relative errors w.r.t. exact: time average (as in the solvers))")
 print(f"  Relative Error FOM (u, v, p): {error_FOM[0]:.3e}  {error_FOM[1]:.3e}  {error_FOM[2]:.3e}")
 print("  tol       n_rb(" + ",".join(MOR_instance.vars) + ")" + \
-      " "*(12 - 4*len(MOR_instance.vars)) + "src_repr   " + "  ".join(f"vsFOM_{var}   " for var in problem.vars) \
+      " "*max(1, 12 - 4*len(MOR_instance.vars)) + "src_repr   " + "  ".join(f"vsFOM_{var}   " for var in problem.vars) \
       + "  " + "  ".join(f"vsEx_{var}    " for var in problem.vars) + "  speedup")
 for i, tol in enumerate(tols):
     row = f"  {tol:.1e}   " + " ".join(f"{n_rb_tols[var][i]:4d}" for var in MOR_instance.vars) + f"   {source_repr_tols[i]:.2e}   "

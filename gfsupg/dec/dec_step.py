@@ -1,4 +1,5 @@
-"""One DeC correction sweep (single step) for standard and MOR solvers"""
+"""One DeC correction sweep (single step) for standard and MOR solvers,
+variant with Dirichlet boundary conditions for MOR through a static lifting"""
 
 import numpy as np
 
@@ -89,9 +90,11 @@ def DeC_one_step_MOR(ROM, problem, DeC, FEM2D, dt, al, stab_curl_coeff, q_prev, 
 
         for var in ROM.vars:
             L2[var][:] = gal_residuals[var] + all_stabs[var]
+            if ROM.lifting_residual is not None:
+                L2[var][:] += ROM.lifting_residual[var][m, :]
 
         for var in ROM.vars:
             q_now[var][m,:] = q_prev[var][m,:] - dt*op[var][var]["inv_lump"]@L2[var][:]
 
-        if dirichlet_BC is not None:
-            raise NotImplementedError("Not implemented bcs in the MOR DeC solver")
+        # Dirichlet data are handled through the lifting stored in ``ROM``;
+        # no reduced boundary degrees of freedom exist to overwrite here.
