@@ -23,16 +23,18 @@ from gfsupg.MOR import MOR
 
 from gfsupg.problem import SourceVortexTestCase
 
-from gfsupg.solver import CartesianGeometry, FiniteElement1D, Scipy2DFEM
-from gfsupg.solver import DeC, DeCSpaceTimeSUPGSolver
-from gfsupg.solver import define_sources
-from gfsupg.solver import define_sources_MOR, define_sources_MOR_uv_p
-from gfsupg.solver import define_residuals, define_GF_residuals
-from gfsupg.solver import define_residuals_MOR, define_GF_residuals_MOR
-from gfsupg.solver import define_residuals_MOR_uv_p, define_GF_residuals_MOR_uv_p
-from gfsupg.solver import SUPG_stabilization, SUPG_GF_stabilization
-from gfsupg.solver import SUPG_stabilization_MOR, SUPG_GF_stabilization_MOR
-from gfsupg.solver import SUPG_stabilization_MOR_uv_p, SUPG_GF_stabilization_MOR_uv_p
+from gfsupg.solver import (
+    CartesianGeometry, FiniteElement1D, Scipy2DFEM, \
+    DeC, DeCSpaceTimeSUPGSolver, \
+    define_sources, \
+    define_sources_MOR, define_sources_MOR_uv_p, \
+    define_residuals, define_GF_residuals, \
+    define_residuals_MOR, define_GF_residuals_MOR, \
+    define_residuals_MOR_uv_p, define_GF_residuals_MOR_uv_p, \
+    SUPG_stabilization, SUPG_GF_stabilization, \
+    SUPG_stabilization_MOR, SUPG_GF_stabilization_MOR, \
+    SUPG_stabilization_MOR_uv_p, SUPG_GF_stabilization_MOR_uv_p
+)
 from gfsupg.ImplicitSolvers import ImplicitEuler, ImplicitDec
 
 from gfsupg.plotting import plot_sol, plot_all_sols
@@ -50,7 +52,7 @@ online_amplitude = 0.015
 # Tolerances for the truncation of the reduced basis (convergence study of the MOR solver)
 tols = np.array([1e-1, 1e-2, 1e-3, 1e-4])
 
-load_sol = True
+load_sol = False
 fom_tol = None # If not None, fail when the complete-basis ROM vs FOM final-time error exceeds it
 plot = True
 
@@ -77,7 +79,6 @@ def source_representation(rom, source):
     source_rec = rom.reconstruct_from_ROM(source_rb)
     return {f"source_representation_{var}": relative_norm(source_rec[var] - source[var], source[var])
             for var in ("u", "v", "p") if np.linalg.norm(source[var]) > 0.0}
-
 
 # Explicit DeC: same routines as DeC_one_step and DeC_one_step_MOR, with a zero state
 def check_explicit_source_residual(solver, rom, fem, source):
@@ -281,6 +282,13 @@ for i, tol in enumerate(tols):
 
 ####################### Post-processing #########################
 if plot:
+    # Figures are saved in <problem folder>/figures, tagged with integrator, GF and split
+    fig_folder = os.path.join(problem.folderName, "figures")
+    os.makedirs(fig_folder, exist_ok=True)
+    fig_tag = f"{time_integrator.__name__}_{'GF' if GF else 'noGF'}_{variable_split.replace(',', '')}"
+    def save_figure(fig, name):
+        fig.savefig(os.path.join(fig_folder, f"{name}_{fig_tag}.pdf"), bbox_inches="tight")
+
     fig, ax = plt.subplots(1, 3, figsize=(15, 4))
     for var in problem.vars:
         ax[0].loglog(tols, err_vs_FOM_tols[var], "o-", label=var)
@@ -297,9 +305,11 @@ if plot:
         a.legend()
     fig.suptitle(f"Source vortex, {time_integrator.__name__}, GF = {GF}, split {variable_split}")
     plt.tight_layout()
+    save_figure(plt.gcf(), "convergence_tolerance")
 
     # Plot the final FOM solution
-    plot_all_sols(problem, FEM2D, qGF, -1, ttGF[-1], levels=21)
+    fig = plot_all_sols(problem, FEM2D, qGF, -1, ttGF[-1], levels=21)
+    save_figure(fig, "FOM_final_time")
 
     # Compare MOR (smallest tolerance), FOM and exact solution at the final time
     it = -1
@@ -316,6 +326,7 @@ if plot:
         axs[1,col].set_title(f"{lab}: p")
     fig.suptitle(f"Final time, tol = {tols[-1]:g}")
     plt.tight_layout()
+    save_figure(plt.gcf(), "comparison_final_time")
 
     # Source (only p is non-zero) and its representation in the reduced basis
     source_rb = MOR_instance.project_onto_ROM(source)
@@ -329,6 +340,7 @@ if plot:
     axs[2].set_title("Difference")
     fig.suptitle(f"Source representation, tol = {tols[-1]:g}")
     plt.tight_layout()
+    save_figure(plt.gcf(), "source_representation")
 
     # Relative error MOR w.r.t. FOM in time (smallest tolerance)
     n_times = min(qGF_MOR_recon["p"].shape[0], qGF["p"].shape[0])
@@ -341,4 +353,5 @@ if plot:
     plt.title(f"tol = {tols[-1]:g}")
     plt.legend()
     plt.tight_layout()
+    save_figure(plt.gcf(), "error_in_time")
     plt.show()

@@ -25,15 +25,17 @@ from gfsupg.MOR import MOR
 
 from gfsupg.problem import SmoothVortexTestCaseParam
 
-from gfsupg.solver import CartesianGeometry, FiniteElement1D, Scipy2DFEM
-from gfsupg.solver import DeC, DeCSpaceTimeSUPGSolver
+from gfsupg.solver import (
+    CartesianGeometry, FiniteElement1D, Scipy2DFEM, \
+    DeC, DeCSpaceTimeSUPGSolver
+)
 
 from gfsupg.plotting import plot_sol, plot_all_sols
 
 ################### Flags and parameters ###############################
-# Time integrator: DeCSpaceTimeSUPGSolver
+# Time integrator: DeCSpaceTimeSUPGSolver, not working with ImplicitEuler or ImplicitDeC yet
 GF = True # Global-flux formulation
-variable_split = "uv,p" # "uv,p" or "u,v,p"
+variable_split = "uv,p" #"u,v,p"
 CFL = 0.1
 n_cells = 30
 degree = 2
@@ -44,7 +46,7 @@ online_params = [9.81, 0.45, 2.5]
 # Tolerances for the truncation of the reduced basis (convergence study of the MOR solver)
 tols = np.array([1e-1, 1e-2, 1e-3, 1e-4])
 
-load_sol = True # Load the snapshots from file, if available (the file name contains all the settings they depend on)
+load_sol = False # Load the snapshots from file, if available (the file name contains all the settings they depend on)
 dirichlet_tol = 1e-12 # Maximum admissible error on the Dirichlet data
 rank_tol = 1e-12 # Complete basis: modes with singular value below rank_tol*s_0 are numerical null space
 fom_tol = None # If not None, fail when the complete-basis ROM vs FOM final-time error exceeds it
@@ -214,6 +216,13 @@ if np.max(bc_err_tols) > dirichlet_tol:
 
 ####################### Post-processing #########################
 if plot:
+    # Figures are saved in <problem folder>/figures, tagged with integrator, GF and split
+    fig_folder = os.path.join(problem.folderName, "figures")
+    os.makedirs(fig_folder, exist_ok=True)
+    fig_tag = f"DeC_{'GF' if GF else 'noGF'}_{variable_split.replace(',', '')}"
+    def save_figure(fig, name):
+        fig.savefig(os.path.join(fig_folder, f"{name}_{fig_tag}.pdf"), bbox_inches="tight")
+
     fig, ax = plt.subplots(1, 3, figsize=(15, 4))
     for var in problem.vars:
         ax[0].loglog(tols, err_vs_FOM_tols[var], "o-", label=var)
@@ -229,9 +238,11 @@ if plot:
         a.legend()
     fig.suptitle(f"Smooth vortex with Dirichlet BCs, DeC, GF = {GF}, split {variable_split}")
     plt.tight_layout()
+    save_figure(plt.gcf(), "convergence_tolerance")
 
     # Plot the final FOM solution
-    plot_all_sols(problem, FEM2D, qGF, -1, ttGF[-1], levels=21)
+    fig = plot_all_sols(problem, FEM2D, qGF, -1, ttGF[-1], levels=21)
+    save_figure(fig, "FOM_final_time")
 
     # Compare MOR (smallest tolerance), FOM and exact solution at the final time
     it = -1
@@ -248,6 +259,7 @@ if plot:
         axs[1,col].set_title(f"{lab}: p")
     fig.suptitle(f"Final time, tol = {tols[-1]:g}")
     plt.tight_layout()
+    save_figure(plt.gcf(), "comparison_final_time")
 
     # Pointwise MOR vs FOM difference at the final time: it must vanish on the Dirichlet boundary
     fig, axs = plt.subplots(1, 3, figsize=(15, 4))
@@ -256,6 +268,7 @@ if plot:
         axs[k].set_title(f"MOR - FOM: {var}")
     fig.suptitle(f"Final time, tol = {tols[-1]:g}")
     plt.tight_layout()
+    save_figure(plt.gcf(), "difference_final_time")
 
     # Relative error MOR w.r.t. FOM in time (smallest tolerance)
     n_times = min(qGF_MOR_recon["p"].shape[0], qGF["p"].shape[0])
@@ -268,4 +281,5 @@ if plot:
     plt.title(f"tol = {tols[-1]:g}")
     plt.legend()
     plt.tight_layout()
+    save_figure(plt.gcf(), "error_in_time")
     plt.show()
