@@ -201,8 +201,8 @@ def OSS_GF_curl_stabilization(all_stabs, q_prev, all_sources, m, op, c, dx_min, 
     dtu = (q_prev["u"][m] - q_prev["u"][0])/dt/beta_m - all_sources["u"]
     dtv = (q_prev["v"][m] - q_prev["v"][0])/dt/beta_m - all_sources["v"]
 
-    all_stabs["u"][:] = c*al*dx_min*(op["ZyMx_tilde"]@dtu-op["DxZy_int"]@dtv)
+    all_stabs["u"][:] = c*al*dx_min*(op["ZyMx_tilde"]@dtu - op["DxZy_int"]@dtv)
     
-    all_stabs["v"][:] = c*al*dx_min*(op["ZxMy_tilde"]@dtv-op["DyZx_int"]@dtv)
+    all_stabs["v"][:] = c*al*dx_min*(op["ZxMy_tilde"]@dtv - op["DyZx_int"]@dtu)
     
     return all_stabs

@@ -491,7 +491,7 @@ class Scipy2DFEM:
             self.operator_MOR["p"]["p"]["mass_tilde"] = basis["p"].T @ self.operator["mass_tilde"] @ basis["p"]
 
             self.operator_MOR["uv"]["p"]["IGrad"] = basis["uv"].T @ \
-                vstack([self.operator["IDx_tilde"], self.operator["IDy_tilde"]]) @ basis["p"]
+                vstack([self.operator["IDx"], self.operator["IDy"]]) @ basis["p"]
 
             self.operator_MOR["p"]["uv"]["IDiv"] = basis["p"].T @ \
                 hstack([self.operator["IDx"], self.operator["IDy"]]) @ basis["uv"]
@@ -545,6 +545,11 @@ class Scipy2DFEM:
 
             self.operator_MOR["p"]["uv"]["Zgrad_int_Mdiv"] = basis["p"].T @ \
             hstack([self.operator["Zx_int_My"], self.operator["Zy_int_Mx"]]) @ basis["uv"]
+
+            self.operator_MOR["p"]["p"]["lump_mass"] = basis["p"].T @ self.operator["lump_mass"] @ basis["p"]
+            self.operator_MOR["uv"]["uv"]["lump_mass"] = basis["uv"].T @ \
+                vstack([hstack([self.operator["lump_mass"],zero]),\
+                        hstack([zero, self.operator["lump_mass"]])]) @ basis["uv"]
 
             self.operator_MOR["p"]["p"]["inv_lump"] = basis["p"].T @ self.operator["inv_lump"] @ basis["p"]
             self.operator_MOR["uv"]["uv"]["inv_lump"] = basis["uv"].T @ \

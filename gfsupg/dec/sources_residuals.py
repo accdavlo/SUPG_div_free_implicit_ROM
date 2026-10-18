@@ -97,7 +97,7 @@ def define_residuals_MOR_uv_p(galer_residuals, q_prev, all_sources, m, op, c, dx
     for the standard (non-GF) formulation."""
 
     galer_residuals["uv"][:] = op["uv"]["uv"]["mass"]@(q_prev["uv"][m,:] - q_prev["uv"][0,:])/dt \
-        + c * op["uv"]["p"]["IDiv"]@(theta_m @ q_prev["p"]) \
+        + c * op["uv"]["p"]["IGrad"]@(theta_m @ q_prev["p"]) \
         +     op["uv"]["uv"]["mass"]@all_sources["uv"]
 
     galer_residuals["p"][:] = op["p"]["p"]["mass"]@(q_prev["p"][m,:] - q_prev["p"][0,:])/dt \

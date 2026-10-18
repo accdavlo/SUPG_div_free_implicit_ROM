@@ -1,4 +1,5 @@
 from .solver import DeCSpaceTimeSUPGSolver, Dirichlet_BC_set, define_sources
+from .solver import define_sources_MOR, define_sources_MOR_uv_p
 from .solver import define_GF_residuals_MOR, define_residuals_MOR
 from .solver import define_GF_residuals_MOR_uv_p, define_residuals_MOR_uv_p
 from .solver import SUPG_GF_stabilization_MOR, SUPG_stabilization_MOR
@@ -67,10 +68,10 @@ class ImplicitEuler(DeCSpaceTimeSUPGSolver):
             curr_i += size_q
 
     def build_whole_matrices(self, a, dx, dirichlet_BC=None):
-        A_C=sp.csr_matrix((self.FEM2D.n_dof_tot*3,self.FEM2D.n_dof_tot*3))
-        A_SU=sp.csr_matrix((self.FEM2D.n_dof_tot*3,self.FEM2D.n_dof_tot*3))
-        Eps_CGFq=sp.csr_matrix((self.FEM2D.n_dof_tot*3,self.FEM2D.n_dof_tot*3))
-        Eps_SUGFq=sp.csr_matrix((self.FEM2D.n_dof_tot*3,self.FEM2D.n_dof_tot*3))
+        A_C = sp.csr_matrix((self.FEM2D.n_dof_tot*3,self.FEM2D.n_dof_tot*3))
+        A_SU = sp.csr_matrix((self.FEM2D.n_dof_tot*3,self.FEM2D.n_dof_tot*3))
+        Eps_CGFq = sp.csr_matrix((self.FEM2D.n_dof_tot*3,self.FEM2D.n_dof_tot*3))
+        Eps_SUGFq = sp.csr_matrix((self.FEM2D.n_dof_tot*3,self.FEM2D.n_dof_tot*3))
         zero = sp.csr_matrix((self.FEM2D.n_dof_tot,self.FEM2D.n_dof_tot))
 
         A_C = vstack([hstack([self.FEM2D.operator["mass"], zero, zero]), \
@@ -119,7 +120,9 @@ class ImplicitEuler(DeCSpaceTimeSUPGSolver):
                         Eps_SUGFq = put_zero_row_in_coo(Eps_SUGFq, i + self.FEM2D.n_dof_tot)
                         Eps_SUGFq = put_zero_row_in_coo(Eps_SUGFq, i + 2*self.FEM2D.n_dof_tot)
 
-        return A_C+A_SU, Eps_CGFq + Eps_SUGFq
+        # The flux terms scale with the speed of sound c (as in the explicit residual),
+        # while the time-derivative terms do not (SUPG with tau = al*dx/c)
+        return A_C + A_SU, self.problem.c*(Eps_CGFq + Eps_SUGFq)
     
     def build_whole_matrices_MOR(self, ROM, a, dx, dirichlet_BC=None):
         n_rb = ROM.n_rb
@@ -164,7 +167,9 @@ class ImplicitEuler(DeCSpaceTimeSUPGSolver):
                 Eps_SUGFq = a * dx * np.vstack([np.hstack([self.FEM2D.operator_MOR["uv"]["uv"]["GradDiv"], np.zeros((n_rb["uv"], n_rb["p"])) ]), \
                         np.hstack([np.zeros((n_rb["p"], n_rb["uv"])), self.FEM2D.operator_MOR["p"]["p"]["DivGrad"] ])])    
 
-        return A_C+A_SU, Eps_CGFq + Eps_SUGFq
+        # The flux terms scale with the speed of sound c (as in the explicit residual),
+        # while the time-derivative terms do not (SUPG with tau = al*dx/c)
+        return A_C + A_SU, self.problem.c*(Eps_CGFq + Eps_SUGFq)
 
     def solve(self, stab_coeff=None, with_error=False, \
               with_error_vertex=False, GF=None, CFL=None, \
@@ -350,13 +355,15 @@ class ImplicitEuler(DeCSpaceTimeSUPGSolver):
                 for ivar, var in enumerate(self.problem.vars):
                     if with_error:
                         ex = self.FEM2D.evaluate_function(lambda x,y: self.problem.exact[var](x,y,t))
-                        error[ivar] += np.linalg.norm(q_save[var][it_save,:]-ex)/np.sqrt(self.FEM2D.n_dof_tot)*dt_tmp
+                        error[ivar] += np.linalg.norm(q_save[var][it_save,:] - ex)/(np.linalg.norm(ex) + 1e-10)*dt_tmp
+                        # error[ivar] += np.linalg.norm(q_save[var][it_save,:] - ex)/np.sqrt(self.FEM2D.n_dof_tot)*dt_tmp # RMS
                     if with_error_vertex:
                         ex = self.FEM2D.evaluate_function_vertex(lambda x,y: self.problem.exact[var](x,y,t))
                         sol_vertex = self.FEM2D.from_vector_to_vertex(q_save[var][it_save,:])
-                        error_vertex[ivar] += np.linalg.norm(sol_vertex-ex)/np.sqrt(len(ex))*dt_tmp
+                        error_vertex[ivar] += np.linalg.norm(sol_vertex - ex)/(np.linalg.norm(ex) + 1e-10)*dt_tmp
+                        # error_vertex[ivar] += np.linalg.norm(sol_vertex - ex)/np.sqrt(len(ex))*dt_tmp # RMS
 
-        if save_sol is not None:
+        if save_sol:
             q_final = dict()
             for var in self.problem.vars:
                 q_final[var] = q_save[var][-1]
@@ -552,13 +559,14 @@ class ImplicitEuler(DeCSpaceTimeSUPGSolver):
                 # Computing error
                 dt_tmp = (tt_save[it_save]- tt_save[it_save-1])/self.problem.T_fin
                 if with_error:
-                    reconstruct = ROM.reconstruct_from_ROM(q_now)
+                    reconstruct = ROM.reconstruct_from_ROM({var: q_save[var][it_save,:] for var in ROM.vars})
                     for ivar, var in enumerate(self.problem.vars):
                         ex = self.FEM2D.evaluate_function(lambda x,y: self. problem.exact[var](x,y,t))
-                        error[ivar] += np.linalg.norm(reconstruct[var][-1,:]-ex)/(np.linalg.norm(ex) + 1e-10)*dt_tmp
+                        error[ivar] += np.linalg.norm(reconstruct[var] - ex)/(np.linalg.norm(ex) + 1e-10)*dt_tmp
+                        # error[ivar] += np.linalg.norm(reconstruct[var] - ex)/np.sqrt(self.FEM2D.n_dof_tot)*dt_tmp # RMS
 
 
-        if save_sol is not None:
+        if save_sol:
             q_final = dict()
             for var in ROM.vars:
                 q_final[var] = q_save[var][-1]
@@ -691,15 +699,15 @@ class ImplicitEuler(DeCSpaceTimeSUPGSolver):
             # Reduced operators are dense: np.block keeps S dense, consistently with A and B
             if self.GF:
                 S = np.block([[fric*op["uv"]["uv"]["mass_tilde_xy"]
-                               + cor*op["uv"]["uv"]["mass_tilde_xy"]@op["uv"]["uv"]["perp"], \
+                               - cor*op["uv"]["uv"]["mass_tilde_xy"]@op["uv"]["uv"]["perp"], \
                                np.zeros((n_rb["uv"], n_rb["p"]))], \
-                              [al*dx_min*(fric*op["p"]["uv"]["DivI_tilde"] + cor*op["p"]["uv"]["DivI_tilde"]@op["uv"]["uv"]["perp"]), \
+                              [al*dx_min*(fric*op["p"]["uv"]["DivI_tilde"] - cor*op["p"]["uv"]["DivI_tilde"]@op["uv"]["uv"]["perp"]), \
                                np.zeros((n_rb["p"], n_rb["p"]))]])
             else:
                 S = np.block([[fric*op["uv"]["uv"]["mass"]
-                               + cor*op["uv"]["uv"]["mass"]@op["uv"]["uv"]["perp"], \
+                               - cor*op["uv"]["uv"]["mass"]@op["uv"]["uv"]["perp"], \
                                np.zeros((n_rb["uv"], n_rb["p"]))], \
-                              [al*dx_min*(fric*op["p"]["uv"]["DivI"] + cor*op["p"]["uv"]["DivI"]@op["uv"]["uv"]["perp"]), \
+                              [al*dx_min*(fric*op["p"]["uv"]["DivI"] - cor*op["p"]["uv"]["DivI"]@op["uv"]["uv"]["perp"]), \
                                np.zeros((n_rb["p"], n_rb["p"]))]])
 
         
@@ -995,13 +1003,15 @@ class ImplicitDec(ImplicitEuler):
                 for ivar, var in enumerate(self.problem.vars):
                     if with_error:
                         ex = self.FEM2D.evaluate_function(lambda x,y: self.problem.exact[var](x,y,t))
-                        error[ivar] += np.linalg.norm(q_save[var][it_save,:]-ex)/np.sqrt(np.linalg.norm(ex) + 1e-10)*dt_tmp
+                        error[ivar] += np.linalg.norm(q_save[var][it_save,:] - ex)/(np.linalg.norm(ex) + 1e-10)*dt_tmp
+                        # error[ivar] += np.linalg.norm(q_save[var][it_save,:] - ex)/np.sqrt(self.FEM2D.n_dof_tot)*dt_tmp # RMS
                     if with_error_vertex:
                         ex = self.FEM2D.evaluate_function_vertex(lambda x,y: self.problem.exact[var](x,y,t))
                         sol_vertex = self.FEM2D.from_vector_to_vertex(q_save[var][it_save,:])
-                        error_vertex[ivar] += np.linalg.norm(sol_vertex-ex)/np.sqrt(np.linalg.norm(ex) + 1e-10)*dt_tmp
+                        error_vertex[ivar] += np.linalg.norm(sol_vertex - ex)/(np.linalg.norm(ex) + 1e-10)*dt_tmp
+                        # error_vertex[ivar] += np.linalg.norm(sol_vertex - ex)/np.sqrt(len(ex))*dt_tmp # RMS
 
-        if save_sol is not None:
+        if save_sol:
             q_final = dict()
             for var in self.problem.vars:
                 q_final[var] = q_save[var][-1]
@@ -1042,13 +1052,14 @@ class ImplicitDec(ImplicitEuler):
         A, B = super().build_whole_matrices_MOR(ROM, a, dx, dirichlet_BC)
 
         n_rb = ROM.n_rb
+        # Reduced operators are dense: np.block keeps L dense, consistently with A and B
         if ROM.variable_split == "u,v,p":
-            L = vstack([hstack([self.FEM2D.operator_MOR["u"]["u"]["lump_mass"], np.zeros((n_rb["u"], n_rb["v"])), np.zeros((n_rb["u"], n_rb["p"]))]), \
-                          hstack([np.zeros((n_rb["v"], n_rb["u"])), self.FEM2D.operator_MOR["v"]["v"]["lump_mass"], np.zeros((n_rb["v"], n_rb["p"]))]),\
-                          hstack([np.zeros((n_rb["p"], n_rb["u"])), np.zeros((n_rb["p"], n_rb["v"])), self.FEM2D.operator_MOR["p"]["p"]["lump_mass"]])])
+            L = np.block([[self.FEM2D.operator_MOR["u"]["u"]["lump_mass"], np.zeros((n_rb["u"], n_rb["v"])), np.zeros((n_rb["u"], n_rb["p"]))], \
+                          [np.zeros((n_rb["v"], n_rb["u"])), self.FEM2D.operator_MOR["v"]["v"]["lump_mass"], np.zeros((n_rb["v"], n_rb["p"]))],\
+                          [np.zeros((n_rb["p"], n_rb["u"])), np.zeros((n_rb["p"], n_rb["v"])), self.FEM2D.operator_MOR["p"]["p"]["lump_mass"]]])
         if ROM.variable_split == "uv,p":
-            L = vstack([hstack([self.FEM2D.operator_MOR["uv"]["uv"]["lump_mass"], np.zeros((n_rb["uv"], n_rb["p"]))]), \
-                          hstack([np.zeros((n_rb["p"], n_rb["uv"])), self.FEM2D.operator_MOR["p"]["p"]["lump_mass"]])])
+            L = np.block([[self.FEM2D.operator_MOR["uv"]["uv"]["lump_mass"], np.zeros((n_rb["uv"], n_rb["p"]))], \
+                          [np.zeros((n_rb["p"], n_rb["uv"])), self.FEM2D.operator_MOR["p"]["p"]["lump_mass"]]])
         
         if dirichlet_BC is not None:
             raise NotImplementedError("Dirichlet BC not implemented for DEC-MOR yet")
@@ -1064,35 +1075,46 @@ class ImplicitDec(ImplicitEuler):
     def implicitDeC_one_step(self, dt, L, E, S, q_prev, vect_q, L2, vect_L2, q_now,\
                              cor_nu, sub_sources, \
                              get_residual, get_stabilization, curl_stabilization,\
-                             dirichlet_BC=None, curl_stab_flag=False):
+                             dirichlet_BC=None, curl_stab_flag=False, ROM=None):
         """Perform one DeC correction sweep over one sub-node.
-    
+
         This routine assembles sources, residuals, and stabilization terms for each
         node and applies one implicit update using `inv_lump`.
+        If `ROM` is given, the reduced operators and variables are used.
         """
-    
+
         # Compute L2 high order space time discretization of the residual
-    
+
         c   = self.problem.c
-        op  = self.FEM2D.operator
+        if ROM is None:
+            op    = self.FEM2D.operator
+            vars_ = self.problem.vars
+        else:
+            op    = self.FEM2D.operator_MOR
+            vars_ = ROM.vars
         #stab_curl_coeff = self.stab_curl_coeff
 
         #self.build_whole_q_vector(q_prev, vect_q)
         all_sources   = dict()
         gal_residuals = dict()
         all_stabs     = dict()
-        for var in self.problem.vars:
+        for var in vars_:
             all_sources[var]   = np.empty(q_prev[var][0,:].shape)
             gal_residuals[var] = np.empty(q_prev[var][0,:].shape)
             all_stabs[var]     = np.empty(q_prev[var][0,:].shape)
 
         for m in range(1,self.DeC.n_subNodes):
             # Carefull with the signs! source_u,_v,_p are meant on the LHS, while the other source was on the RHS
-            define_sources(all_sources, q_prev, sub_sources, self.DeC.theta[m,:], self.problem.coriolis, cor_nu, self.problem.friction)
+            if ROM is None:
+                define_sources(all_sources, q_prev, sub_sources, self.DeC.theta[m,:], self.problem.coriolis, cor_nu, self.problem.friction)
+            elif ROM.variable_split == "u,v,p":
+                define_sources_MOR(op, all_sources, q_prev, sub_sources, self.DeC.theta[m,:], self.problem.coriolis, cor_nu, self.problem.friction)
+            elif ROM.variable_split == "uv,p":
+                define_sources_MOR_uv_p(op, all_sources, q_prev, sub_sources, self.DeC.theta[m,:], self.problem.coriolis, cor_nu, self.problem.friction)
             get_residual(gal_residuals, q_prev, all_sources, m,op,c,self.FEM2D.geom.dx_min, self.stab_coeff, self.DeC.theta[m,:], dt)
             get_stabilization(all_stabs, q_prev, all_sources, m,op,c,self.FEM2D.geom.dx_min, self.stab_coeff, self.DeC.theta[m,:], dt)
 
-            for var in self.problem.vars:
+            for var in vars_:
                 L2[var][:] = gal_residuals[var]+ all_stabs[var]
 
             #Can not include curl stabilization: how do we include source terms?
@@ -1117,7 +1139,7 @@ class ImplicitDec(ImplicitEuler):
                 vect_q = np.linalg.solve(-L/dt-beta*(E+S), vect_L2[0,:]) 
 
             self.split_whole_q_vector(q_now, vect_q, m)
-            for var in self.problem.vars:
+            for var in vars_:
                 q_now[var][m,:] += q_prev[var][m,:]
 
             if dirichlet_BC is not None:
@@ -1175,7 +1197,7 @@ class ImplicitDec(ImplicitEuler):
         it_save = 0
         L2 = dict()
         for var in ROM.vars: # ("u", "v", "p")
-            L2[var] = np.zeros(self.FEM2D.n_dof_rb[var])
+            L2[var] = np.zeros((1, self.FEM2D.n_dof_rb[var])) # 2D as required by build_whole_q_vector
             q_save[var] = np.zeros((self.Nt_save, self.FEM2D.n_dof_rb[var]))
         tt_save = np.zeros(self.Nt_save)
 
@@ -1222,7 +1244,7 @@ class ImplicitDec(ImplicitEuler):
 
         tic = time.time()
         
-        _, B, L = self.build_whole_matrices_MOR(self.stab_coeff, self.geom.dx_min, None)
+        _, B, L = self.build_whole_matrices_MOR(ROM, self.stab_coeff, self.geom.dx_min, None)
         S = self.define_matrix_sources_implicit_MOR(ROM, self.problem.coriolis, cor_nu, self.problem.friction, \
                                                 self.FEM2D.operator_MOR, self.stab_coeff, self.geom.dx_min, None)
 
@@ -1263,7 +1285,7 @@ class ImplicitDec(ImplicitEuler):
                              get_stabilization=get_stabilization,\
                              curl_stabilization=curl_stabilization,\
                              dirichlet_BC=None,
-                             curl_stab_flag = curl_stab_flag)
+                             curl_stab_flag=curl_stab_flag, ROM=ROM)
                 # STILL EXPLICIT ROM!
                 #DeC_one_step_MOR(ROM,self.problem, self.DeC, self.FEM2D, dt, al,\
                 #                 self.stab_curl_coeff, q_prev, L2, q_now, sub_sources = sub_sources,\
@@ -1272,7 +1294,7 @@ class ImplicitDec(ImplicitEuler):
                 #                 get_stabilization=get_stabilization,\
                 #                 curl_stabilization=None,\
                 #                 dirichlet_BC=None,
-                #                 curl_stab_flag = curl_stab_flag)
+                #                 curl_stab_flag=curl_stab_flag)
             
             for var in ROM.vars:
                 q[var] = q_now[var][-1,:]
@@ -1313,13 +1335,14 @@ class ImplicitDec(ImplicitEuler):
                 # Computing error
                 dt_tmp = (tt_save[it_save]- tt_save[it_save-1])/self.problem.T_fin
                 if with_error:
-                    reconstruct = ROM.reconstruct_from_ROM(q_now)
+                    reconstruct = ROM.reconstruct_from_ROM({var: q_save[var][it_save,:] for var in ROM.vars})
                     for ivar, var in enumerate(self.problem.vars):
                         ex = self.FEM2D.evaluate_function(lambda x,y: self. problem.exact[var](x,y,t))
-                        error[ivar] += np.linalg.norm(reconstruct[var][-1,:]-ex)/(np.linalg.norm(ex) + 1e-10)*dt_tmp
+                        error[ivar] += np.linalg.norm(reconstruct[var] - ex)/(np.linalg.norm(ex) + 1e-10)*dt_tmp
+                        # error[ivar] += np.linalg.norm(reconstruct[var] - ex)/np.sqrt(self.FEM2D.n_dof_tot)*dt_tmp # RMS
 
 
-        if save_sol is not None:
+        if save_sol:
             q_final = dict()
             for var in ROM.vars:
                 q_final[var] = q_save[var][-1]
