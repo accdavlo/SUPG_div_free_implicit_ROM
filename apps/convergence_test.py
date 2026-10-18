@@ -1,5 +1,6 @@
 import numpy as np
-from gfsupg.solver import CartesianGeometry, FiniteElement1D, ImplicitDec
+from gfsupg.solver import CartesianGeometry, FiniteElement1D
+from gfsupg.ImplicitSolvers import ImplicitDec
 from gfsupg.solver import Scipy2DFEM, DeC, DeCSpaceTimeSUPGSolver
 from gfsupg.problem import *
 from gfsupg.plotting import *

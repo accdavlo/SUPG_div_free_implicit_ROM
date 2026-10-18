@@ -260,7 +260,7 @@ class DeCSpaceTimeSUPGSolver:
                 for var in self.problem.vars:
                     ic_vect_guess[var] = self.FEM2D.evaluate_function(\
                                         problem_base.ics[var])
-                self.ic_no_pert = self.FEM2D.divfree_projection_integration( ic_vect_guess, problem_base.ics, coriolis= self.problem.coriolis)
+                self.ic_no_pert = self.FEM2D.divfree_projection_integration( ic_vect_guess, problem_base.ics, problem_base)
 
                 self.ic_vect = dict()
                 for var in self.problem.vars:
@@ -712,7 +712,7 @@ class DeCSpaceTimeSUPGSolver:
                 for i in range(self.DeC.M_sub):
                     q_now[var][i,:] = q_now[var][-1,:] # previous timestep last update
             if self.problem.source is not None:
-                for i in range(self.DeC.M_sub):
+                for i in range(self.DeC.M_sub + 1):
                     for var in self.problem.vars:
                         source_FOM[var] = self.FEM2D.evaluate_function(lambda x,y: self.problem.source[var](x,y,t+dt*self.DeC.beta[i]))
 
