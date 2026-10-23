@@ -729,8 +729,10 @@ class DeCSpaceTimeSUPGSolver:
         q_prev = dict()
         q_now  = dict()
         q      = dict()
-        ROM.set_dirichlet_lifting(self.ic_vect)
-        ic_ROM = ROM.project_onto_ROM(self.ic_vect)
+        
+        if ROM.dirichlet_lifting is None:
+            ROM.set_dirichlet_lifting(self.ic_vect)
+        ic_ROM = ROM.project_onto_ROM(ROM.homogenize(self.ic_vect))
         for var in ROM.vars:
             q_prev[var] = np.zeros((self.DeC.n_subNodes, self.FEM2D.n_dof_rb[var]))
             q_now[var]  = np.zeros((self.DeC.n_subNodes, self.FEM2D.n_dof_rb[var]))
@@ -774,9 +776,15 @@ class DeCSpaceTimeSUPGSolver:
                 for i in range(self.DeC.M_sub):
                     q_now[var][i,:] = q_now[var][-1,:] # previous timestep last update
             if self.problem.source is not None:
+                ### ALREADY INCLUDED IN THE LIFTING, so I PUT A ZERO SOURCE
+                ### WRONG IF TIME DEPENDENT SOURCE
+                ### ONLY FOR SOURCES THAT ARE INDEPENDENT OF THE VARIABLES
+                
                 for i in range(self.DeC.M_sub + 1):
                     for var in self.problem.vars:
-                        source_FOM[var] = self.FEM2D.evaluate_function(lambda x,y: self.problem.source[var](x,y,t+dt*self.DeC.beta[i]))
+                        # source_FOM[var] = self.FEM2D.evaluate_function(lambda x,y: self.problem.source[var](x,y,t+dt*self.DeC.beta[i]))
+                        source_FOM[var] = self.FEM2D.evaluate_function(lambda x,y: 0.)
+                        
 
                     source = ROM.project_onto_ROM(source_FOM, apply_lifting=False)
                     for var in ROM.vars:
@@ -842,7 +850,7 @@ class DeCSpaceTimeSUPGSolver:
                 # Computing error
                 dt_tmp = (tt_save[it_save]- tt_save[it_save-1])/self.problem.T_fin
                 if with_error:
-                    reconstruct = ROM.reconstruct_from_ROM({var: q_save[var][it_save,:] for var in ROM.vars})
+                    reconstruct = ROM.reconstruct_from_ROM({var: q_save[var][it_save,:] for var in ROM.vars}, apply_lifting = True)
                     for ivar, var in enumerate(self.problem.vars):
                         ex = self.FEM2D.evaluate_function(lambda x,y: self. problem.exact[var](x,y,t))
                         error[ivar] += np.linalg.norm(reconstruct[var] - ex)/(np.linalg.norm(ex) + 1e-10)*dt_tmp

@@ -69,10 +69,14 @@ class MOR:
             return
 
         lifting = {var: np.zeros(self.FEM2D.n_dof_tot) for var in self.problem.vars}
-        for boundary, variables in self.problem.dirichlet.items():
-            indexes = self.FEM2D.dirichlet_indexes[boundary]
-            for var in variables:
-                lifting[var][indexes] = state[var][indexes]
+        # for boundary, variables in self.problem.dirichlet.items():
+        #     indexes = self.FEM2D.dirichlet_indexes[boundary]
+        #     for var in variables:
+        #         lifting[var][indexes] = state[var][indexes]
+
+        for var in self.problem.vars:
+            lifting[var][:] = state[var][:]
+
         self.dirichlet_lifting = lifting
 
     def homogenize(self, q_FOM):
@@ -93,33 +97,33 @@ class MOR:
                 homogeneous[var] -= self.dirichlet_lifting[var][None, :]
         return homogeneous
 
-    def _enforce_homogeneous_basis(self):
-        """Make the reduced basis exactly zero at constrained FOM dofs."""
-        if not self.has_dirichlet:
-            return
+    # def _enforce_homogeneous_basis(self):
+    #     """Make the reduced basis exactly zero at constrained FOM dofs."""
+    #     if not self.has_dirichlet:
+    #         return
 
-        # Constrained rows of each basis ("uv" stacks u and v)
-        rows = {var: [] for var in self.vars}
-        for boundary, variables in self.problem.dirichlet.items():
-            indexes = self.FEM2D.dirichlet_indexes[boundary]
-            for var in variables:
-                if var in rows:
-                    rows[var].extend(indexes)
-                elif self.variable_split == "uv,p" and var in ("u", "v"):
-                    rows["uv"].extend(indexes if var == "u" else indexes + self.FEM2D.n_dof_tot)
-        rows = {var: np.unique(np.asarray(idx, dtype=np.int64)) for var, idx in rows.items()}
+    #     # Constrained rows of each basis ("uv" stacks u and v)
+    #     rows = {var: [] for var in self.vars}
+    #     for boundary, variables in self.problem.dirichlet.items():
+    #         indexes = self.FEM2D.dirichlet_indexes[boundary]
+    #         for var in variables:
+    #             if var in rows:
+    #                 rows[var].extend(indexes)
+    #             elif self.variable_split == "uv,p" and var in ("u", "v"):
+    #                 rows["uv"].extend(indexes if var == "u" else indexes + self.FEM2D.n_dof_tot)
+    #     rows = {var: np.unique(np.asarray(idx, dtype=np.int64)) for var, idx in rows.items()}
 
-        for var in self.vars:
-            self.basis[var][rows[var], :] = 0.0
+    #     for var in self.vars:
+    #         self.basis[var][rows[var], :] = 0.0
 
-        # Removing the boundary rows can introduce round-off non-orthogonality.
-        # QR restores the Euclidean orthonormality assumed by the projections.
-        # If the basis contains (numerical) null-space modes of the snapshots, these are
-        # concentrated on the constrained rows and the zeroed basis is ill-conditioned:
-        # QR then re-introduces non-zero values there, which are removed again.
-        for var in self.vars:
-            self.basis[var], _ = np.linalg.qr(self.basis[var], mode="reduced")
-            self.basis[var][rows[var], :] = 0.0
+    #     # Removing the boundary rows can introduce round-off non-orthogonality.
+    #     # QR restores the Euclidean orthonormality assumed by the projections.
+    #     # If the basis contains (numerical) null-space modes of the snapshots, these are
+    #     # concentrated on the constrained rows and the zeroed basis is ill-conditioned:
+    #     # QR then re-introduces non-zero values there, which are removed again.
+    #     for var in self.vars:
+    #         self.basis[var], _ = np.linalg.qr(self.basis[var], mode="reduced")
+    #         self.basis[var][rows[var], :] = 0.0
 
     def run_offline(self, mu_offline, n_rb=None, load_sol=False):
         self.mu_offline = mu_offline
@@ -216,10 +220,10 @@ class MOR:
                 self.basis[var] = self.basis_all[var][:,0:self.n_rb[var]]
                 print(f"Number of reduced basis for {var}:", self.n_rb[var])
 
-        self._enforce_homogeneous_basis()
+        # self._enforce_homogeneous_basis()
         self.FEM2D.build_matrices_MOR(self)
 
-    def project_onto_ROM(self, q_FOM, apply_lifting=True):
+    def project_onto_ROM(self, q_FOM, apply_lifting=False):
         """Project a FOM state or forcing onto the reduced basis.
 
         ``apply_lifting`` is true for solution states and false for physical
@@ -248,7 +252,7 @@ class MOR:
         
         return q_ROM
     
-    def reconstruct_from_ROM(self, q_ROM):
+    def reconstruct_from_ROM(self, q_ROM, apply_lifting=True):
         q_FOM = dict()
         if q_ROM["p"].ndim==1:
             for var in self.vars:
@@ -268,9 +272,7 @@ class MOR:
                 q_FOM["u"] = q_FOM["uv"][:,:self.FEM2D.n_dof_tot]
                 q_FOM["v"] = q_FOM["uv"][:,self.FEM2D.n_dof_tot:]
 
-        if self.has_dirichlet:
-            if self.dirichlet_lifting is None:
-                raise RuntimeError("Dirichlet lifting has not been initialized")
+        if apply_lifting and self.has_dirichlet and (self.dirichlet_lifting is not None):
             for var in self.problem.vars:
                 if q_FOM[var].ndim == 1:
                     q_FOM[var] += self.dirichlet_lifting[var]
@@ -304,7 +306,7 @@ class MOR:
                 for var in self.vars:
                     qGF_mor_curr[var] = self.qGF_MOR[var][idx,:]
                 
-                reconstructed = self.reconstruct_from_ROM(qGF_mor_curr)
+                reconstructed = self.reconstruct_from_ROM(qGF_mor_curr, apply_lifting=True)
                 _, res_tmp = self.FEM2D.compute_GF_residual(reconstructed, sources)
                 _,res_rb_tmp = self.FEM2D.compute_GF_residual_MOR(self, qGF_mor_curr, source_MOR, self.basis) 
                 for var in self.problem.vars:

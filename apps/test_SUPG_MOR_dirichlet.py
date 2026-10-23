@@ -41,13 +41,13 @@ n_cells = 30
 degree = 2
 
 # Parameters [g, r0, coeff_exp] used to compute the snapshots and online
-mu_offline = [[9.81, 0.45, coeff_exp_] for coeff_exp_ in (1.0, 2.0, 3.0, 4.0)]
+mu_offline = [[9.81, 0.45, coeff_exp_] for coeff_exp_ in np.linspace(1,4,10)]#(1.0, 2.0, 3.0, 4.0)]
 online_params = [9.81, 0.45, 2.5]
 # Tolerances for the truncation of the reduced basis (convergence study of the MOR solver)
 tols = np.array([1e-1, 1e-2, 1e-3, 1e-4])
 
-load_sol = False # Load the snapshots from file, if available (the file name contains all the settings they depend on)
-dirichlet_tol = 1e-12 # Maximum admissible error on the Dirichlet data
+load_sol = True # Load the snapshots from file, if available (the file name contains all the settings they depend on)
+dirichlet_tol = 1e-8 # Maximum admissible error on the Dirichlet data
 rank_tol = 1e-12 # Complete basis: modes with singular value below rank_tol*s_0 are numerical null space
 fom_tol = None # If not None, fail when the complete-basis ROM vs FOM final-time error exceeds it
 plot = True
@@ -71,7 +71,7 @@ def constrained_rows(problem, fem, var):
 # Check: the reconstructed solution must satisfy the prescribed boundary values
 def dirichlet_errors(rom, q_rom, boundary_values, rows):
     """Maximum error on the Dirichlet data of the reconstructed solution at all saved times."""
-    q_rec = rom.reconstruct_from_ROM(q_rom)
+    q_rec = rom.reconstruct_from_ROM(q_rom, apply_lifting=True)
     return {var: np.max(np.abs(q_rec[var][:, rows[var]] - boundary_values[var][None, :]))
             for var in ("u", "v", "p") if rows[var].size > 0}
 
@@ -94,7 +94,7 @@ def relative_norm(error, reference):
 # ROM vs FOM comparison on the reconstructed solution
 def compare_with_fom(rom, q_rom, q_fom):
     """Relative ROM vs FOM errors at the final time and maximum over the saved times."""
-    q_rec = rom.reconstruct_from_ROM(q_rom)
+    q_rec = rom.reconstruct_from_ROM(q_rom, apply_lifting=True)
     n_times = min(q_rec["p"].shape[0], q_fom["p"].shape[0])
     final = {var: relative_norm(q_rec[var][-1] - q_fom[var][-1], q_fom[var][-1]) for var in ("u", "v", "p")}
     max_in_time = {
@@ -152,13 +152,31 @@ boundary_values = {var: solver.ic_vect[var][rows[var]].copy() for var in problem
 # Complete basis = numerical rank of the snapshots: the null-space modes carry no
 # information and, the snapshots being homogeneous, are concentrated on the boundary.
 MOR_instance.compute_SVD()
-MOR_instance.truncate_basis(n_rb={var: int(np.sum(MOR_instance.Sigma_svd[var] > rank_tol*MOR_instance.Sigma_svd[var][0]))
-                                  for var in MOR_instance.vars})
+MOR_instance.truncate_basis(n_rb={var: int(np.sum(MOR_instance.Sigma_svd[var] > rank_tol*MOR_instance.Sigma_svd[var][0])) for var in MOR_instance.vars})
+
 
 qGF_MOR, _, _, _, _ = solver.solve_MOR(MOR_instance, save_sol=None, with_error=False)
 bc_errors = dirichlet_errors(MOR_instance, qGF_MOR, boundary_values, rows)
 basis_errors = basis_on_boundary(MOR_instance, problem, FEM2D)
 full_final, full_max = compare_with_fom(MOR_instance, qGF_MOR, qGF)
+
+
+it=-1
+qGF_MOR_recon = MOR_instance.reconstruct_from_ROM(qGF_MOR, apply_lifting=True)
+q_exact = {var: FEM2D.evaluate_function(lambda x, y, var=var: problem.exact[var](x, y, ttGF[it]))
+            for var in problem.vars}
+fig, axs = plt.subplots(2, 3, figsize=(15, 8))
+for col, (lab, q) in enumerate([("MOR", {var: qGF_MOR_recon[var][it,:] for var in problem.vars}),
+                                ("FOM", {var: qGF[var][it,:] for var in problem.vars}),
+                                ("Exact", q_exact)]):
+    plot_sol(FEM2D, q["u"]**2 + q["v"]**2, axs[0,col], fig, levels=21)
+    plot_sol(FEM2D, q["p"], axs[1,col], fig, levels=21)
+    axs[0,col].set_title(f"{lab}: |u|^2")
+    axs[1,col].set_title(f"{lab}: p")
+fig.suptitle(f"Final time, tol = {tols[-1]:g}")
+plt.tight_layout()
+plt.show()
+
 
 print("\nTime integrator: DeC | GF:", GF, "| variable split:", variable_split)
 print("Complete basis, reduced dimensions:", {var: MOR_instance.n_rb[var] for var in MOR_instance.vars})
@@ -246,7 +264,7 @@ if plot:
 
     # Compare MOR (smallest tolerance), FOM and exact solution at the final time
     it = -1
-    qGF_MOR_recon = MOR_instance.reconstruct_from_ROM(qGF_MOR)
+    qGF_MOR_recon = MOR_instance.reconstruct_from_ROM(qGF_MOR, apply_lifting=True)
     q_exact = {var: FEM2D.evaluate_function(lambda x, y, var=var: problem.exact[var](x, y, ttGF[it]))
                for var in problem.vars}
     fig, axs = plt.subplots(2, 3, figsize=(15, 8))

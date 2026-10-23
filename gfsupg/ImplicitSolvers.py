@@ -559,7 +559,7 @@ class ImplicitEuler(DeCSpaceTimeSUPGSolver):
                 # Computing error
                 dt_tmp = (tt_save[it_save]- tt_save[it_save-1])/self.problem.T_fin
                 if with_error:
-                    reconstruct = ROM.reconstruct_from_ROM({var: q_save[var][it_save,:] for var in ROM.vars})
+                    reconstruct = ROM.reconstruct_from_ROM({var: q_save[var][it_save,:] for var in ROM.vars}, apply_lifting=True)
                     for ivar, var in enumerate(self.problem.vars):
                         ex = self.FEM2D.evaluate_function(lambda x,y: self. problem.exact[var](x,y,t))
                         error[ivar] += np.linalg.norm(reconstruct[var] - ex)/(np.linalg.norm(ex) + 1e-10)*dt_tmp
@@ -1335,7 +1335,7 @@ class ImplicitDec(ImplicitEuler):
                 # Computing error
                 dt_tmp = (tt_save[it_save]- tt_save[it_save-1])/self.problem.T_fin
                 if with_error:
-                    reconstruct = ROM.reconstruct_from_ROM({var: q_save[var][it_save,:] for var in ROM.vars})
+                    reconstruct = ROM.reconstruct_from_ROM({var: q_save[var][it_save,:] for var in ROM.vars}, apply_lifting=True)
                     for ivar, var in enumerate(self.problem.vars):
                         ex = self.FEM2D.evaluate_function(lambda x,y: self. problem.exact[var](x,y,t))
                         error[ivar] += np.linalg.norm(reconstruct[var] - ex)/(np.linalg.norm(ex) + 1e-10)*dt_tmp

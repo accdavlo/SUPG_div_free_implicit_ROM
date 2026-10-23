@@ -75,8 +75,8 @@ def append_snapshots(storage, solution, source):
 # Error of the source representation in the reduced basis (also used in the tolerance study)
 def source_representation(rom, source):
     """Relative error of the projection V V^T s of the source on the reduced basis."""
-    source_rb = rom.project_onto_ROM(source)
-    source_rec = rom.reconstruct_from_ROM(source_rb)
+    source_rb = rom.project_onto_ROM(source,apply_lifting=False)
+    source_rec = rom.reconstruct_from_ROM(source_rb,apply_lifting=False)
     return {f"source_representation_{var}": relative_norm(source_rec[var] - source[var], source[var])
             for var in ("u", "v", "p") if np.linalg.norm(source[var]) > 0.0}
 
@@ -163,7 +163,7 @@ def relative_norm(error, reference):
 # ROM vs FOM comparison on the reconstructed solution
 def compare_with_fom(rom, q_rom, q_fom):
     """Relative ROM vs FOM errors at the final time and maximum over the saved times."""
-    q_rec = rom.reconstruct_from_ROM(q_rom)
+    q_rec = rom.reconstruct_from_ROM(q_rom, apply_lifting=True)
     n_times = min(q_rec["p"].shape[0], q_fom["p"].shape[0])
     final = {var: relative_norm(q_rec[var][-1] - q_fom[var][-1], q_fom[var][-1]) for var in ("u", "v", "p")}
     max_in_time = {
@@ -313,7 +313,7 @@ if plot:
 
     # Compare MOR (smallest tolerance), FOM and exact solution at the final time
     it = -1
-    qGF_MOR_recon = MOR_instance.reconstruct_from_ROM(qGF_MOR)
+    qGF_MOR_recon = MOR_instance.reconstruct_from_ROM(qGF_MOR, apply_lifting=True)
     q_exact = {var: FEM2D.evaluate_function(lambda x, y, var=var: problem.exact[var](x, y, ttGF[it]))
                for var in problem.vars}
     fig, axs = plt.subplots(2, 3, figsize=(15, 8))

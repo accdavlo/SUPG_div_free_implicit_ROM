@@ -120,7 +120,7 @@ for i, tol in enumerate(tols):
         print("Relative Error MOR %s:" % var, MOR_instance.error_MOR[ivar])
     print("")
 
-    qGF_MOR_recon = MOR_instance.reconstruct_from_ROM(MOR_instance.qGF_MOR)
+    qGF_MOR_recon = MOR_instance.reconstruct_from_ROM(MOR_instance.qGF_MOR, apply_lifting=True)
 
     #plot_all_sols(problem, FEM2D, qGF_MOR_recon, it, MOR_instance.ttGF_MOR[it], levels=21)
     error_MOR_vs_FOM = np.zeros(len(problem.vars))
