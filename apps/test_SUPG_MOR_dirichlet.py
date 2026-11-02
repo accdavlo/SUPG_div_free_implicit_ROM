@@ -47,7 +47,7 @@ online_params = [9.81, 0.45, 2.5]
 # Tolerances for the truncation of the reduced basis (convergence study of the MOR solver)
 tols = np.array([1e-1, 1e-2, 1e-3, 1e-4])
 
-load_sol = True # Load the snapshots from file, if available (the file name contains all the settings they depend on)
+load_sol = False # Load the snapshots from file, if available (the file name contains all the settings they depend on)
 dirichlet_tol = 1e-8 # Maximum admissible error on the Dirichlet data
 rank_tol = 1e-8 # Complete basis: modes with singular value below rank_tol*s_0 are numerical null space (their round-off on the boundary grows like eps/rank_tol)
 fom_tol = None # If not None, fail when the complete-basis ROM vs FOM final-time error exceeds it

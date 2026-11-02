@@ -587,6 +587,10 @@ class MovingSourceTestCase(LinearAcoustic2D):
         }
         return self.exact
 
+    def set_parameters(self, mu):
+        # Background speed: the lambdas in IC, source and exact solution read it at evaluation time
+        self.background_speed = np.array(mu, dtype=np.float64)
+
 
 class ObliqueTestCase(LinearAcoustic2D):
     def __init__(self, name="oblique", T_fin=1.0, pert_coeff=None):
