@@ -431,7 +431,10 @@ class ImplicitEuler(DeCSpaceTimeSUPGSolver):
         q_prev = dict()
         q_now  = dict()
         q      = dict()
-        ic_ROM = ROM.project_onto_ROM(self.ic_vect)
+        # Lifting from the current initial state, as in the explicit solver: V^T q_D is not zero in general,
+        # so the initial condition is homogenized before the projection
+        ROM.set_dirichlet_lifting(self.ic_vect)
+        ic_ROM = ROM.project_onto_ROM(ROM.homogenize(self.ic_vect))
         for var in ROM.vars:
             q_prev[var] = np.zeros((2, self.FEM2D.n_dof_rb[var]))
             q_now[var]  = np.zeros((2, self.FEM2D.n_dof_rb[var]))
@@ -1194,7 +1197,10 @@ class ImplicitDec(ImplicitEuler):
         q_prev = dict()
         q_now  = dict()
         q      = dict()
-        ic_ROM = ROM.project_onto_ROM(self.ic_vect)
+        # Lifting from the current initial state, as in the explicit solver: V^T q_D is not zero in general,
+        # so the initial condition is homogenized before the projection
+        ROM.set_dirichlet_lifting(self.ic_vect)
+        ic_ROM = ROM.project_onto_ROM(ROM.homogenize(self.ic_vect))
         for var in ROM.vars:
             q_prev[var] = np.zeros((self.DeC.n_subNodes, self.FEM2D.n_dof_rb[var]))
             q_now[var]  = np.zeros((self.DeC.n_subNodes, self.FEM2D.n_dof_rb[var]))
