@@ -3,8 +3,8 @@
 The test uses ``SmoothVortexTestCaseParam`` with Dirichlet conditions on the whole
 boundary (is_dirichlet=True: boundary values fixed to the initial ones, as in the FOM)
 and ``coeff_exp`` as parameter.  The Dirichlet data are imposed in the ROM through a
-static lifting, q = q_D + V q_rb, with homogeneous snapshots and a reduced basis
-vanishing on the constrained degrees of freedom (MOR_dirichlet.py, solver_dirichlet.py).
+static lifting, q = q_D + V q_rb, with q_D the initial state: the snapshots q - q_D, and
+hence the reduced basis, vanish on the constrained degrees of freedom (MOR.py, solver.py).
 
 1. Complete basis (regression): the reduced basis vanishes on the boundary and
    the reconstructed solution satisfies the Dirichlet data at all saved times.
@@ -37,6 +37,7 @@ from gfsupg.plotting import plot_sol, plot_all_sols
 GF = True # Global-flux formulation
 variable_split = "uv,p" #"u,v,p"
 CFL = 0.1
+Nt_save = 100 # Saved times per trajectory: snapshots must resolve the acoustic transient
 n_cells = 30
 degree = 2
 
@@ -48,7 +49,7 @@ tols = np.array([1e-1, 1e-2, 1e-3, 1e-4])
 
 load_sol = True # Load the snapshots from file, if available (the file name contains all the settings they depend on)
 dirichlet_tol = 1e-8 # Maximum admissible error on the Dirichlet data
-rank_tol = 1e-12 # Complete basis: modes with singular value below rank_tol*s_0 are numerical null space
+rank_tol = 1e-8 # Complete basis: modes with singular value below rank_tol*s_0 are numerical null space (their round-off on the boundary grows like eps/rank_tol)
 fom_tol = None # If not None, fail when the complete-basis ROM vs FOM final-time error exceeds it
 plot = True
 
@@ -116,13 +117,14 @@ rows = {var: constrained_rows(problem, FEM2D, var) for var in problem.vars}
 ################### Set the time integrator ###############################
 solver = DeCSpaceTimeSUPGSolver(problem, FEM2D, dec, GF=GF, stab="SUPG", trick_second_der=False)
 solver.set_CFL(CFL)
+solver.set_save_slabs(Nt_save)
 
 ####################### Perform the offline phase #########################
 # Snapshots are homogenized with the lifting of their own parameter, so that
 # they vanish on the Dirichlet boundary (snapshots stored as n_dof x n_snapshots).
 snapshots_file = os.path.join(problem.folderName,
                               f"snapshots_dirichlet_DeC_{'GF' if GF else 'noGF'}_deg{degree}"
-                              f"_N{n_cells:04d}_CFL{CFL:g}"
+                              f"_N{n_cells:04d}_CFL{CFL:g}_Nt{Nt_save}"
                               f"_mu{'_'.join('-'.join(f'{x:g}' for x in mu) for mu in mu_offline)}.npz")
 MOR_instance = MOR(problem, FEM2D, dec, solver, GF=GF, stab="SUPG", variable_split=variable_split)
 if load_sol and os.path.exists(snapshots_file):
@@ -159,24 +161,6 @@ qGF_MOR, _, _, _, _ = solver.solve_MOR(MOR_instance, save_sol=None, with_error=F
 bc_errors = dirichlet_errors(MOR_instance, qGF_MOR, boundary_values, rows)
 basis_errors = basis_on_boundary(MOR_instance, problem, FEM2D)
 full_final, full_max = compare_with_fom(MOR_instance, qGF_MOR, qGF)
-
-
-it = -1
-qGF_MOR_recon = MOR_instance.reconstruct_from_ROM(qGF_MOR, apply_lifting=True)
-q_exact = {var: FEM2D.evaluate_function(lambda x, y, var=var: problem.exact[var](x, y, ttGF[it]))
-            for var in problem.vars}
-fig, axs = plt.subplots(2, 3, figsize=(15, 8))
-for col, (lab, q) in enumerate([("MOR", {var: qGF_MOR_recon[var][it,:] for var in problem.vars}),
-                                ("FOM", {var: qGF[var][it,:] for var in problem.vars}),
-                                ("Exact", q_exact)]):
-    plot_sol(FEM2D, q["u"]**2 + q["v"]**2, axs[0,col], fig, levels=21)
-    plot_sol(FEM2D, q["p"], axs[1,col], fig, levels=21)
-    axs[0,col].set_title(f"{lab}: |u|^2")
-    axs[1,col].set_title(f"{lab}: p")
-fig.suptitle(f"Final time, tol = {tols[-1]:g}")
-plt.tight_layout()
-plt.show()
-
 
 print("\nTime integrator: DeC | GF:", GF, "| variable split:", variable_split)
 print("Complete basis, reduced dimensions:", {var: MOR_instance.n_rb[var] for var in MOR_instance.vars})
