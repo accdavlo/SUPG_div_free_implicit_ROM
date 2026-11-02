@@ -41,7 +41,7 @@ n_cells = 30
 degree = 2
 
 # Parameters [g, r0, coeff_exp] used to compute the snapshots and online
-mu_offline = [[9.81, 0.45, coeff_exp_] for coeff_exp_ in np.linspace(1,4,10)]#(1.0, 2.0, 3.0, 4.0)]
+mu_offline = [[9.81, 0.45, coeff_exp_] for coeff_exp_ in np.linspace(1, 4, 10)]#(1.0, 2.0, 3.0, 4.0)]
 online_params = [9.81, 0.45, 2.5]
 # Tolerances for the truncation of the reduced basis (convergence study of the MOR solver)
 tols = np.array([1e-1, 1e-2, 1e-3, 1e-4])
@@ -161,7 +161,7 @@ basis_errors = basis_on_boundary(MOR_instance, problem, FEM2D)
 full_final, full_max = compare_with_fom(MOR_instance, qGF_MOR, qGF)
 
 
-it=-1
+it = -1
 qGF_MOR_recon = MOR_instance.reconstruct_from_ROM(qGF_MOR, apply_lifting=True)
 q_exact = {var: FEM2D.evaluate_function(lambda x, y, var=var: problem.exact[var](x, y, ttGF[it]))
             for var in problem.vars}

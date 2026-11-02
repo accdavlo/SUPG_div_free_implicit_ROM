@@ -30,17 +30,17 @@ def DeC_one_step(problem, DeC, FEM2D, dt, al, stab_curl_coeff, q_prev, L2, q_now
         gal_residuals[var] = np.empty(q_prev[var][0,:].shape)
         all_stabs[var]     = np.empty(q_prev[var][0,:].shape)
 
-    for m in range(1,DeC.n_subNodes):
+    for m in range(1, DeC.n_subNodes):
         # Carefull with the signs! source_u,_v,_p are meant on the LHS, while the other source was on the RHS
-        define_sources(all_sources,q_prev,sub_sources,DeC.theta[m,:],cor,coriolis_not_uni,fric)
-        get_residual(gal_residuals,q_prev,all_sources,m,op,c,FEM2D.geom.dx_min,al,DeC.theta[m,:],dt)
-        get_stabilization(all_stabs,q_prev,all_sources,m,op,c,FEM2D.geom.dx_min,al,DeC.theta[m,:],dt)
+        define_sources(all_sources, q_prev, sub_sources, DeC.theta[m,:], cor, coriolis_not_uni, fric)
+        get_residual(gal_residuals, q_prev, all_sources, m, op, c, FEM2D.geom.dx_min, al, DeC.theta[m,:], dt)
+        get_stabilization(all_stabs, q_prev, all_sources, m, op, c, FEM2D.geom.dx_min, al, DeC.theta[m,:], dt)
 
         for var in problem.vars:
             L2[var][:] = gal_residuals[var] + all_stabs[var]
 
         if curl_stab_flag:
-            curl_stabilization(all_stabs,q_prev,all_sources,m,op,c,FEM2D.geom.dx_min,stab_curl_coeff,DeC.theta[m,:],dt)
+            curl_stabilization(all_stabs, q_prev, all_sources, m, op, c, FEM2D.geom.dx_min, stab_curl_coeff, DeC.theta[m,:], dt)
             for var in ["u","v"]:
                 L2[var][:] += all_stabs[var]
 
@@ -82,11 +82,11 @@ def DeC_one_step_MOR(ROM, problem, DeC, FEM2D, dt, al, stab_curl_coeff, q_prev, 
         gal_residuals[var] = np.empty(q_prev[var][0,:].shape)
         all_stabs[var]     = np.empty(q_prev[var][0,:].shape)
 
-    for m in range(1,DeC.n_subNodes):
+    for m in range(1, DeC.n_subNodes):
         # Carefull with the signs! source_u,_v,_p are meant on the LHS, while the other source was on the RHS
-        define_sources_(op,all_sources,q_prev,sub_sources,DeC.theta[m,:],cor,coriolis_not_uni,fric)
-        get_residual(gal_residuals,q_prev,all_sources,m,op,c,FEM2D.geom.dx_min,al,DeC.theta[m,:],dt)
-        get_stabilization(all_stabs,q_prev,all_sources,m,op,c,FEM2D.geom.dx_min,al,DeC.theta[m,:],dt)
+        define_sources_(op, all_sources, q_prev, sub_sources, DeC.theta[m,:], cor, coriolis_not_uni, fric)
+        get_residual(gal_residuals, q_prev, all_sources, m, op, c, FEM2D.geom.dx_min, al, DeC.theta[m,:], dt)
+        get_stabilization(all_stabs, q_prev, all_sources, m, op, c, FEM2D.geom.dx_min, al, DeC.theta[m,:], dt)
 
         for var in ROM.vars:
             L2[var][:] = gal_residuals[var] + all_stabs[var]

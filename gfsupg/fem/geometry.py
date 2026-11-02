@@ -23,12 +23,12 @@ class CartesianGeometry:
         self.dx_min = np.min(self.dx)
         self.xx = {}
         for k in range(self.dim):
-            self.xx[k] = np.linspace(self.xL[k],self.xR[k],self.N_elem_dir[k]+1)
+            self.xx[k] = np.linspace(self.xL[k], self.xR[k], self.N_elem_dir[k]+1)
         if BC is None:
             self.BC = np.zeros(2*self.dim, dtype=np.int32) # periodic BC
         else:
             self.BC = BC
         for k in range(self.dim):
-            if self.BC[k]==0:                             # Periodic BC 
+            if self.BC[k] == 0:                             # Periodic BC
                 assert self.BC[k] == self.BC[k+self.dim]  # Check that is periodic also on the other side
                 self.xx[k] = self.xx[k][:-1]

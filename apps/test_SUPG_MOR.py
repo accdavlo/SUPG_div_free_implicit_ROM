@@ -15,9 +15,9 @@ order = 3
 order_space = order
 order_time = 2
 
-FEM1Dx = FiniteElement1D(order_space-1,"gaussLobatto","gaussLobatto")
-FEM1Dy = FiniteElement1D(order_space-1,"gaussLobatto","gaussLobatto")
-dec = DeC((order_time+1)//2,order_time,"gaussLobatto")
+FEM1Dx = FiniteElement1D(order_space-1, "gaussLobatto", "gaussLobatto")
+FEM1Dy = FiniteElement1D(order_space-1, "gaussLobatto", "gaussLobatto")
+dec = DeC((order_time+1)//2, order_time, "gaussLobatto")
 
 Ny = 40
 Nx = 40
@@ -28,7 +28,7 @@ problem = SmoothVortexTestCaseParam(is_long=True)
 # problem = ShuVortexTestCaseParam()
 # problem.T_fin = 100.0
 
-geom = CartesianGeometry(problem.xL,problem.xR, Ns, problem.geometry_folder, BC=problem.BC)
+geom = CartesianGeometry(problem.xL, problem.xR, Ns, problem.geometry_folder, BC=problem.BC)
 FEM2D = Scipy2DFEM(geom, FEM1Dx, FEM1Dy, folder=problem.folderName)
 
 ################### Set the time integrator ###############################
@@ -38,7 +38,7 @@ solver.set_CFL(500.0)
 
 ################### Set the MOR data ###############################
 # Parameters used to compute the snapshots
-coeff_exp = np.arange(1,11,1)
+coeff_exp = np.arange(1, 11, 1)
 mu_offline = [[9.81, 0.45, coeff_exp_] for coeff_exp_ in coeff_exp]
 # mu_offline = [[]]
 # mu_offline = [[x0, y0, r0] for x0 in np.linspace(0.35,0.65,6) for y0 in np.linspace(0.35,0.65,6) for r0 in np.linspace(0.15,0.25,6)]
@@ -153,8 +153,8 @@ fig.suptitle("Convergence w.r.t tolerance", fontsize=16)
 #plt.show()
 
 # Compare MOR (smallest tolerance) and FOM at the final time
-fig, axs = plt.subplots(1,3, figsize=(15,4))
-plot_sol(FEM2D, (qGF_MOR_recon["u"][it,:])**2 + (qGF_MOR_recon["v"][it,:])**2 , axs[0],fig, levels=21)
+fig, axs = plt.subplots(1, 3, figsize=(15, 4))
+plot_sol(FEM2D, (qGF_MOR_recon["u"][it,:])**2 + (qGF_MOR_recon["v"][it,:])**2 , axs[0], fig, levels=21)
 plot_sol(FEM2D, qGF["u"][it,:]**2 + qGF["v"][it,:]**2, axs[1], fig, levels=21)
 plot_sol(FEM2D, qGF["u"][0,:]**2 + qGF["v"][0,:]**2, axs[2], fig, levels=21)
 if solver.GF:
@@ -181,7 +181,7 @@ plt.semilogy(MOR_instance.ttGF_MOR, div_ROM)
 plt.xlabel("Time")
 plt.ylabel("Discrete divergence of the reconstructed MOR solution")
 plt.tight_layout()
-plt.savefig(os.path.join(problem.folderName,"discrete_divergence_MOR_in_time.pdf"))
+plt.savefig(os.path.join(problem.folderName, "discrete_divergence_MOR_in_time.pdf"))
 plt.show()
 
 # TODO: the discrete divergence is not fully below 10^-5?

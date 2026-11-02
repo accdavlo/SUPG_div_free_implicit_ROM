@@ -23,18 +23,18 @@ class DeC:
         self.nodes_type = nodes_type
         self.compute_theta_DeC()
         self.name = "DeC_" + self.nodes_type
-    
+
     def compute_theta_DeC(self):
-        nodes, w = nodes_weights(self.n_subNodes,self.nodes_type)
-        int_nodes, int_w = nodes_weights(self.n_subNodes,"gaussLobatto")
-        # generate theta coefficients 
-        self.theta = np.zeros((self.n_subNodes,self.n_subNodes))
+        nodes, w = nodes_weights(self.n_subNodes, self.nodes_type)
+        int_nodes, int_w = nodes_weights(self.n_subNodes, "gaussLobatto")
+        # generate theta coefficients
+        self.theta = np.zeros((self.n_subNodes, self.n_subNodes))
         self.beta = np.zeros(self.n_subNodes)
         for m in range(self.n_subNodes):
             self.beta[m] = nodes[m]
             nodes_m = int_nodes*(nodes[m])
             w_m = int_w*(nodes[m])
             for r in range(self.n_subNodes):
-                self.theta[m,r] = np.sum(lagrange_basis(nodes,nodes_m,r)*w_m)
+                self.theta[m,r] = np.sum(lagrange_basis(nodes, nodes_m, r)*w_m)
 
         return self.theta, self.beta

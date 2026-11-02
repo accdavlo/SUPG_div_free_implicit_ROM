@@ -75,8 +75,8 @@ def append_snapshots(storage, solution, source):
 # Error of the source representation in the reduced basis (also used in the tolerance study)
 def source_representation(rom, source):
     """Relative error of the projection V V^T s of the source on the reduced basis."""
-    source_rb = rom.project_onto_ROM(source,apply_lifting=False)
-    source_rec = rom.reconstruct_from_ROM(source_rb,apply_lifting=False)
+    source_rb = rom.project_onto_ROM(source, apply_lifting=False)
+    source_rec = rom.reconstruct_from_ROM(source_rb, apply_lifting=False)
     return {f"source_representation_{var}": relative_norm(source_rec[var] - source[var], source[var])
             for var in ("u", "v", "p") if np.linalg.norm(source[var]) > 0.0}
 

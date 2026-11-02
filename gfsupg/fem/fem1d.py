@@ -28,10 +28,10 @@ class FiniteElement1D:
         self.assemble_stencil_matrices()
 
     def assemble_matrices(self):
-        self.matrix_names = ("mass","lump_mass","eval_mat","int_mat", "mass_bar", \
-                             "deriv_i","deriv_j","deriv_ij", \
-                             "deriv_ij_tilde","der_int_tilde", \
-                             "deriv_i_tilde","mass_int",\
+        self.matrix_names = ("mass", "lump_mass", "eval_mat", "int_mat", "mass_bar", \
+                             "deriv_i", "deriv_j", "deriv_ij", \
+                             "deriv_ij_tilde", "der_int_tilde", \
+                             "deriv_i_tilde", "mass_int",\
                              "deriv_j_bar")
 
         self.matrix = {}
@@ -48,7 +48,7 @@ class FiniteElement1D:
         phi_quad = self.phi_quad
         phi_der_quad = self.phi_der_quad
 
-        for i in range(self.N_dof):            
+        for i in range(self.N_dof):
             for j in range(self.N_dof):
                 for iq in range(len(self.quad_nodes)):
                     wq = self.quad_weights[iq]
@@ -58,18 +58,18 @@ class FiniteElement1D:
                     self.matrix["deriv_ij"][i,j] += wq * phi_der_quad[i,iq] * phi_der_quad[j,iq]
             self.matrix["lump_mass"][i,i] = np.sum(self.matrix["mass"][i,:])
 
-        for i in range(self.N_dof):            
+        for i in range(self.N_dof):
             nodes_i   = self.nodes[i]*self.quad_nodes
             weights_i = self.nodes[i]*self.quad_weights
             for j in range(self.N_dof):
                 basis_quad = lagrange_basis(self.nodes, nodes_i, j)
                 for iq in range(len(self.quad_nodes)):
                     self.matrix["int_mat"][i,j] += weights_i[iq]*basis_quad[iq]
-        
+
         for j in range(self.N_dof):
             basis_nodes = lagrange_basis(self.nodes, self.nodes, j)
             self.matrix["eval_mat"][:,j] = basis_nodes
-        
+
         self.matrix["deriv_ij_tilde"] = self.matrix["deriv_ij"] @ self.matrix["eval_mat"]
         self.matrix["der_int_tilde"]  = self.matrix["deriv_j"]  @ self.matrix["int_mat"]
         self.matrix["deriv_i_tilde"]  = self.matrix["deriv_ij"] @ self.matrix["int_mat"]
@@ -99,20 +99,20 @@ class FiniteElement1D:
         for matrix_name in self.matrix_names:
             for i in range(self.degree):
                 self.stencil_long[matrix_name][i,0,:] = \
-                    self.matrix[matrix_name][i,:self.degree]    
+                    self.matrix[matrix_name][i,:self.degree]
 
                 #  Contributions from the cell on the right
                 self.stencil_long[matrix_name][i,1,0] = \
-                    self.matrix[matrix_name][i,self.degree]    
-            
+                    self.matrix[matrix_name][i,self.degree]
+
             # Add contributions from cell k-1
-            i=0
+            i = 0
             for j in range(self.degree):
                 self.stencil_long[matrix_name][i,-1,j] +=\
                     self.matrix[matrix_name][self.degree,j]
 
             # Add contribution of last dof of cell k-1
-            i=0
+            i = 0
             self.stencil_long[matrix_name][i,0,0] += self.matrix[matrix_name][self.degree,self.degree]
 
             # Putting stencil on one line

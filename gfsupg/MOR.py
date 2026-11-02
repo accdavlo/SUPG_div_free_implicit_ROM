@@ -44,7 +44,7 @@ class MOR:
         if self.solver.GF:
             self.GF_string = "GF"
         else:
-            self.GF_string = "noGF"    
+            self.GF_string = "noGF"
 
         # Dirichlet data are imposed through q = q_D + V q_rb.  The lifting
         # q_D contains the prescribed boundary values and V is made zero on
@@ -165,10 +165,10 @@ class MOR:
                     for var in self.problem.vars:
                         self.snapshots[var][:,idx_mu] = self.homogenize(qGF)[var][-1,:]
                 else:
-                    for i in np.arange(0,qGF["u"].shape[0],1):
+                    for i in np.arange(0, qGF["u"].shape[0], 1):
                         for var in self.problem.vars:
                             self.snapshots[var][:,i + idx_mu*self.solver.Nt_save] = self.homogenize(qGF)[var][i,:]
-        
+
             np.savez(inputfile_name, snapshots=self.snapshots, mu_offline=self.mu_offline, \
                      n_dof_x=self.FEM2D.n_dof_dir[0], n_dof_y=self.FEM2D.n_dof_dir[1])
         else:
@@ -232,7 +232,7 @@ class MOR:
         if apply_lifting:
             q_FOM = self.homogenize(q_FOM)
         q_ROM = dict()
-        if q_FOM["p"].ndim==1:
+        if q_FOM["p"].ndim == 1:
             if self.variable_split == "uv,p":
                 # New dict: the input (e.g. a source evaluated in place) is not modified
                 q_FOM = {**q_FOM, "uv": np.concatenate((q_FOM["u"], q_FOM["v"]))}
@@ -249,12 +249,12 @@ class MOR:
                 else:
                     for i in range(q_FOM[var].shape[0]):
                         q_ROM[var][i,:] = self.basis[var].T@ q_FOM[var][i,:]
-        
+
         return q_ROM
-    
+
     def reconstruct_from_ROM(self, q_ROM, apply_lifting=True):
         q_FOM = dict()
-        if q_ROM["p"].ndim==1:
+        if q_ROM["p"].ndim == 1:
             for var in self.vars:
                 q_FOM[var] = self.basis[var]@ q_ROM[var]
             if self.variable_split == "uv,p":
@@ -278,7 +278,7 @@ class MOR:
                     q_FOM[var] += self.dirichlet_lifting[var]
                 else:
                     q_FOM[var] += self.dirichlet_lifting[var][None, :]
-        
+
         return q_FOM
 
     def run_online(self, params, compute_residuals=False):
@@ -289,8 +289,8 @@ class MOR:
         print("")
         print("Computing GF-SUPG MOR")
         self.qGF_MOR, self.ttGF_MOR, self.comp_timeGF_MOR, self.error_MOR, _  = \
-            self.solver.solve_MOR(self, save_sol = True, with_error = True)
-        
+            self.solver.solve_MOR(self, save_sol=True, with_error=True)
+
         # Check residuals
         if compute_residuals:
             sources = self.FEM2D.compute_sources(self.solver.ic_vect, self.problem)
@@ -305,15 +305,15 @@ class MOR:
                 qGF_mor_curr = dict()
                 for var in self.vars:
                     qGF_mor_curr[var] = self.qGF_MOR[var][idx,:]
-                
+
                 reconstructed = self.reconstruct_from_ROM(qGF_mor_curr, apply_lifting=True)
                 _, res_tmp = self.FEM2D.compute_GF_residual(reconstructed, sources)
-                _,res_rb_tmp = self.FEM2D.compute_GF_residual_MOR(self, qGF_mor_curr, source_MOR, self.basis) 
+                _, res_rb_tmp = self.FEM2D.compute_GF_residual_MOR(self, qGF_mor_curr, source_MOR, self.basis)
                 for var in self.problem.vars:
                     self.res[var][idx] = res_tmp[var]
                 for var in self.vars:
                     self.res_rb[var][idx] = res_rb_tmp[var]
-            
+
             return self.qGF_MOR, self.ttGF_MOR, self.comp_timeGF_MOR, self.error_MOR, self.res, self.res_rb
-        
+
         return self.qGF_MOR, self.ttGF_MOR, self.comp_timeGF_MOR, self.error_MOR
