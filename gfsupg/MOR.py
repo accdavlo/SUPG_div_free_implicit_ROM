@@ -272,7 +272,9 @@ class MOR:
                 q_FOM["u"] = q_FOM["uv"][:,:self.FEM2D.n_dof_tot]
                 q_FOM["v"] = q_FOM["uv"][:,self.FEM2D.n_dof_tot:]
 
-        if apply_lifting and self.has_dirichlet and (self.dirichlet_lifting is not None):
+        if apply_lifting and self.has_dirichlet:
+            if self.dirichlet_lifting is None:
+                raise RuntimeError("Dirichlet lifting has not been initialized")
             for var in self.problem.vars:
                 if q_FOM[var].ndim == 1:
                     q_FOM[var] += self.dirichlet_lifting[var]
