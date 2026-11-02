@@ -729,9 +729,8 @@ class DeCSpaceTimeSUPGSolver:
         q_prev = dict()
         q_now  = dict()
         q      = dict()
-
-        if ROM.dirichlet_lifting is None:
-            ROM.set_dirichlet_lifting(self.ic_vect)
+        # Lifting from the current initial state, as the boundary data of the FOM
+        ROM.set_dirichlet_lifting(self.ic_vect)
         ic_ROM = ROM.project_onto_ROM(ROM.homogenize(self.ic_vect))
         for var in ROM.vars:
             q_prev[var] = np.zeros((self.DeC.n_subNodes, self.FEM2D.n_dof_rb[var]))
