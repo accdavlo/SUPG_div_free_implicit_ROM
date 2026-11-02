@@ -7,7 +7,8 @@ so that with the complete basis it is representable exactly.
 
 1. Complete basis (regression): the reduced source contributions must be the
    projection of the FOM ones (explicit residual and, for the implicit
-   integrators, the implicit source vector) up to rounding.
+   integrators, the implicit source vector) up to rounding.  Since the source is
+   a snapshot, V V^T s = s, so a difference reveals an error in the reduced assembly.
 2. Tolerance study (as in test_SUPG_MOR.py): for each POD tolerance, number of
    reduced modes, error w.r.t. the FOM and the exact solution, and speedup.
 
@@ -82,11 +83,16 @@ def source_representation(rom, source):
 
 # Explicit DeC: same routines as DeC_one_step and DeC_one_step_MOR, with a zero state
 def check_explicit_source_residual(solver, rom, fem, source):
-    """Compare the projected FOM source contribution to the explicit residual with the MOR one.
+    """Check the reduced source terms of the explicit DeC against the FOM ones.
 
-    With a zero state the Galerkin residual and the SUPG stabilization reduce to
-    their source terms. The routines are chosen according to the GF flag and to
-    the variable splitting, as in the solvers.
+    The source s enters the explicit residual linearly: with a zero state, the Galerkin
+    residual and the SUPG stabilization reduce to their source terms, B s.  We compute
+      1. V^T (B s): FOM routines, result projected onto the reduced basis;
+      2. B_rb (V^T s): MOR routines applied to the projected source.
+    The two coincide when the source belongs to the reduced space (V V^T s = s), which
+    holds with the complete basis since the source is a snapshot: a difference reveals a
+    reduced operator or a MOR routine that is not the projection of the FOM one.
+    The routines are chosen according to the GF flag and to the variable splitting, as in the solvers.
     """
     problem = solver.problem
     n_sub = solver.DeC.n_subNodes
@@ -95,7 +101,7 @@ def check_explicit_source_residual(solver, rom, fem, source):
     cor_nu = np.zeros(fem.n_dof_tot)
     args = (problem.c, fem.geom.dx_min, solver.stab_coeff, theta_m, 1.0) # dt is irrelevant with a zero state
 
-    # FOM contribution, projected onto the reduced basis
+    # 1. FOM: source part of the residual, B s, projected onto the reduced basis
     fom_residual, fom_stab = (define_GF_residuals, SUPG_GF_stabilization) if solver.GF \
                              else (define_residuals, SUPG_stabilization)
     q_zero = {var: np.zeros((n_sub, fem.n_dof_tot)) for var in problem.vars}
@@ -106,7 +112,7 @@ def check_explicit_source_residual(solver, rom, fem, source):
     fom_stab(stab, q_zero, all_sources, m, fem.operator, *args)
     projected = rom.project_onto_ROM({var: gal[var] + stab[var] for var in problem.vars})
 
-    # MOR contribution
+    # 2. MOR: the same with the reduced routines and the projected source, B_rb (V^T s)
     if rom.variable_split == "uv,p":
         rom_sources = define_sources_MOR_uv_p
         rom_residual, rom_stab = (define_GF_residuals_MOR_uv_p, SUPG_GF_stabilization_MOR_uv_p) if solver.GF \
@@ -124,6 +130,7 @@ def check_explicit_source_residual(solver, rom, fem, source):
     rom_residual(gal_rb, q_zero_rb, all_sources_rb, m, fem.operator_MOR, *args)
     rom_stab(stab_rb, q_zero_rb, all_sources_rb, m, fem.operator_MOR, *args)
 
+    # 3. Relative difference, zero up to round-off
     return {f"explicit_residual_{var}": relative_norm(gal_rb[var] + stab_rb[var] - projected[var], projected[var])
             for var in rom.vars}
 
