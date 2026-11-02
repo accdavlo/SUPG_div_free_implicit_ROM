@@ -46,9 +46,9 @@ class MOR:
         else:
             self.GF_string = "noGF"
 
-        # Dirichlet data are imposed through q = q_D + V q_rb.  The lifting
-        # q_D contains the prescribed boundary values and V is made zero on
-        # the constrained degrees of freedom in ``truncate_basis``.
+        # Dirichlet data are imposed through q = q_D + V q_rb, with q_D the
+        # initial state.  The FOM keeps the initial boundary values, so the
+        # homogenized snapshots, and hence V, vanish on the constrained dofs.
         self.dirichlet_lifting = None
         self.lifting_residual = None
 
@@ -57,27 +57,18 @@ class MOR:
         return self.problem.dirichlet is not None
 
     def set_dirichlet_lifting(self, state):
-        """Build the static FOM lifting from the current Dirichlet data.
+        """Build the static FOM lifting from the current initial state.
 
-        The FOM solver currently prescribes the initial boundary values for
-        the whole simulation.  We use the same convention in the ROM.  This
-        method must therefore be called after ``solver.set_ic()`` whenever
-        the online parameters change.
+        The FOM solver prescribes the initial boundary values for the whole
+        simulation, so the whole initial state is a valid lifting and does not
+        require to identify the constrained dofs.  This method must therefore
+        be called after ``solver.set_ic()`` whenever the online parameters change.
         """
         if not self.has_dirichlet:
             self.dirichlet_lifting = None
             return
 
-        lifting = {var: np.zeros(self.FEM2D.n_dof_tot) for var in self.problem.vars}
-        # for boundary, variables in self.problem.dirichlet.items():
-        #     indexes = self.FEM2D.dirichlet_indexes[boundary]
-        #     for var in variables:
-        #         lifting[var][indexes] = state[var][indexes]
-
-        for var in self.problem.vars:
-            lifting[var][:] = state[var][:]
-
-        self.dirichlet_lifting = lifting
+        self.dirichlet_lifting = {var: state[var].copy() for var in self.problem.vars}
 
     def homogenize(self, q_FOM):
         """Return a copy of a FOM state with its Dirichlet lifting removed."""
@@ -96,34 +87,6 @@ class MOR:
             else:
                 homogeneous[var] -= self.dirichlet_lifting[var][None, :]
         return homogeneous
-
-    # def _enforce_homogeneous_basis(self):
-    #     """Make the reduced basis exactly zero at constrained FOM dofs."""
-    #     if not self.has_dirichlet:
-    #         return
-
-    #     # Constrained rows of each basis ("uv" stacks u and v)
-    #     rows = {var: [] for var in self.vars}
-    #     for boundary, variables in self.problem.dirichlet.items():
-    #         indexes = self.FEM2D.dirichlet_indexes[boundary]
-    #         for var in variables:
-    #             if var in rows:
-    #                 rows[var].extend(indexes)
-    #             elif self.variable_split == "uv,p" and var in ("u", "v"):
-    #                 rows["uv"].extend(indexes if var == "u" else indexes + self.FEM2D.n_dof_tot)
-    #     rows = {var: np.unique(np.asarray(idx, dtype=np.int64)) for var, idx in rows.items()}
-
-    #     for var in self.vars:
-    #         self.basis[var][rows[var], :] = 0.0
-
-    #     # Removing the boundary rows can introduce round-off non-orthogonality.
-    #     # QR restores the Euclidean orthonormality assumed by the projections.
-    #     # If the basis contains (numerical) null-space modes of the snapshots, these are
-    #     # concentrated on the constrained rows and the zeroed basis is ill-conditioned:
-    #     # QR then re-introduces non-zero values there, which are removed again.
-    #     for var in self.vars:
-    #         self.basis[var], _ = np.linalg.qr(self.basis[var], mode="reduced")
-    #         self.basis[var][rows[var], :] = 0.0
 
     def run_offline(self, mu_offline, n_rb=None, load_sol=False):
         self.mu_offline = mu_offline
@@ -220,7 +183,6 @@ class MOR:
                 self.basis[var] = self.basis_all[var][:,0:self.n_rb[var]]
                 print(f"Number of reduced basis for {var}:", self.n_rb[var])
 
-        # self._enforce_homogeneous_basis()
         self.FEM2D.build_matrices_MOR(self)
 
     def project_onto_ROM(self, q_FOM, apply_lifting=False):

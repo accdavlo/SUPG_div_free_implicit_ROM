@@ -18,7 +18,6 @@ def SUPG_stabilization(all_stabs, q_prev, all_sources, m, op, c, dx_min, al, the
         +   c*al*dx_min*op["DyDy2"]@(theta_m @ q_prev["v"]) \
         +   al*dx_min*op["DyI"]@all_sources["p"]
 
-
     all_stabs["p"][:] = \
            al*dx_min*op["DxI"]@(q_prev["u"][m,:] - q_prev["u"][0,:])/dt \
         +  al*dx_min*op["DyI"]@(q_prev["v"][m,:] - q_prev["v"][0,:])/dt \
