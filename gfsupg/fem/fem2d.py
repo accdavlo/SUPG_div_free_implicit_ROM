@@ -470,6 +470,9 @@ class Scipy2DFEM:
                     for i, matrix in enumerate(self.operator):
                         #print("Assembling MOR Matrices  %02d/%d"%(i,tot_mat+1), end="\r")
                         self.operator_MOR[var][var_bis][matrix] = basis[var].T @ self.operator[matrix] @ basis[var_bis]
+                # Inverse of the reduced lumped mass (V^T L V)^{-1}, not the projection V^T L^{-1} V:
+                # the latter makes the DeC iterations inconsistent with the FOM ones
+                self.operator_MOR[var][var]["inv_lump"] = np.linalg.inv(self.operator_MOR[var][var]["lump_mass"])
         elif ROM.variable_split == "uv,p":
             # We look at the SUPG operators I need
             zero = sp.csr_matrix((self.n_dof_tot, self.n_dof_tot))
@@ -551,10 +554,10 @@ class Scipy2DFEM:
                 vstack([hstack([self.operator["lump_mass"],zero]),\
                         hstack([zero, self.operator["lump_mass"]])]) @ basis["uv"]
 
-            self.operator_MOR["p"]["p"]["inv_lump"] = basis["p"].T @ self.operator["inv_lump"] @ basis["p"]
-            self.operator_MOR["uv"]["uv"]["inv_lump"] = basis["uv"].T @ \
-                vstack([hstack([self.operator["inv_lump"],zero]),\
-                        hstack([zero, self.operator["inv_lump"]])]) @ basis["uv"]
+            # Inverse of the reduced lumped mass (V^T L V)^{-1}, not the projection V^T L^{-1} V:
+            # the latter makes the DeC iterations inconsistent with the FOM ones
+            self.operator_MOR["p"]["p"]["inv_lump"] = np.linalg.inv(self.operator_MOR["p"]["p"]["lump_mass"])
+            self.operator_MOR["uv"]["uv"]["inv_lump"] = np.linalg.inv(self.operator_MOR["uv"]["uv"]["lump_mass"])
 
     def evaluate_function(self, funct):
         vfunc = np.vectorize(funct)
